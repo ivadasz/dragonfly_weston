@@ -12,10 +12,7 @@ WRKSRC=		${WRKDIR}/${PORTNAME}-${PORTVERSION}
 CPPFLAGS+=	-I${LOCALBASE}/include
 LDFLAGS+=	-L${LOCALBASE}/lib
 
-# XXX use proper libjpeg dependency, so that libjpeg-turbo can be used
-LIB_DEPENDS=	libevent.so:${PORTSDIR}/devel/libevent2			\
-		libevent_pthreads.so:${PORTSDIR}/devel/libevent2	\
-		libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
+LIB_DEPENDS=	libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
 		libexecinfo.so:${PORTSDIR}/devel/libexecinfo		\
 		libpixman-1.so:${PORTSDIR}/x11/pixman			\
 		libwayland-server.so:${PORTSDIR}/graphics/wayland	\
