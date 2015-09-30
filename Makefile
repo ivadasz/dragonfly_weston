@@ -1,0 +1,37 @@
+PORTNAME=	weston
+PORTVERSION=	1.9.0
+CATEGORIES=	net
+MASTER_SITES=	http://wayland.freedesktop.org/releases/
+MAINTAINER=	imre@vdsz.com
+COMMENT=	Wayland Default Compositor
+
+LICENSE=	MIT
+
+USES=		tar:xz gmake jpeg
+WRKSRC=		${WRKDIR}/${PORTNAME}-${PORTVERSION}
+CPPFLAGS+=	-I${LOCALBASE}/include
+LDFLAGS+=	-L${LOCALBASE}/lib
+
+# XXX use proper libjpeg dependency, so that libjpeg-turbo can be used
+LIB_DEPENDS=	libevent.so:${PORTSDIR}/devel/libevent2			\
+		libevent_pthreads.so:${PORTSDIR}/devel/libevent2	\
+		libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
+		libexecinfo.so:${PORTSDIR}/devel/libexecinfo		\
+		libpixman-1.so:${PORTSDIR}/x11/pixman			\
+		libwayland-server.so:${PORTSDIR}/graphics/wayland	\
+		libwayland-client.so:${PORTSDIR}/graphics/wayland	\
+		libgbm.so:${PORTSDIR}/graphics/gbm			\
+		libdrm.so:${PORTSDIR}/graphics/libdrm			\
+		libffi.so:${PORTSDIR}/devel/libffi
+
+GNU_CONFIGURE=	YES
+
+CONFIGURE_ENV+=		WESTON_NATIVE_BACKEND=x11-backend.so
+#CONFIGURE_ARGS+=	--with-libevent=${PREFIX}
+CONFIGURE_ARGS+=	--disable-egl --disable-weston-launch
+CONFIGURE_ARGS+=	--disable-drm-compositor --disable-rpi-compositor
+CONFIGURE_ARGS+=	--disable-fbdev-compositor --disable-vaapi-recorder
+CONFIGURE_ARGS+=	--disable-dbus --disable-setuid-install
+
+.include <bsd.port.mk>
+
