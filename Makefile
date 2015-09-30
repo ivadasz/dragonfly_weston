@@ -7,7 +7,7 @@ COMMENT=	Wayland Default Compositor
 
 LICENSE=	MIT
 
-USES=		tar:xz gmake jpeg
+USES=		tar:xz gmake jpeg alias
 WRKSRC=		${WRKDIR}/${PORTNAME}-${PORTVERSION}
 CPPFLAGS+=	-I${LOCALBASE}/include
 LDFLAGS+=	-L${LOCALBASE}/lib
