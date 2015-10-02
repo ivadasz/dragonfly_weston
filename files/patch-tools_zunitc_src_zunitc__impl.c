@@ -1,4 +1,4 @@
---- tools/zunitc/src/zunitc_impl.c.orig	2015-10-02 20:20:39 +0200
+--- tools/zunitc/src/zunitc_impl.c.orig	2015-07-17 22:49:02 +0200
 +++ tools/zunitc/src/zunitc_impl.c
 @@ -36,6 +36,10 @@
  #include <sys/wait.h>
@@ -29,7 +29,7 @@
  
 +#if defined(__FreeBSD__)
 +		if (wait(&status) == -1) {
-+			printf("%s:%d: error: waitid failed. (%d)\n",
++			printf("%s:%d: error: wait failed. (%d)\n",
 +#else
  		if (waitid(P_ALL, 0, &info, WEXITED)) {
  			printf("%s:%d: error: waitid failed. (%d)\n",
