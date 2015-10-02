@@ -1,6 +1,30 @@
 --- configure.orig	2015-09-22 03:59:28 +0200
 +++ configure
-@@ -13218,21 +13218,18 @@
+@@ -651,6 +651,7 @@
+ LIBUNWIND_CFLAGS
+ HAVE_LIBUNWIND_FALSE
+ HAVE_LIBUNWIND_TRUE
++EVENT_LIBS
+ GCC_CFLAGS
+ BUILD_SETBACKLIGHT_FALSE
+ BUILD_SETBACKLIGHT_TRUE
+@@ -958,6 +959,7 @@
+ enable_simple_clients
+ enable_simple_egl_clients
+ enable_simple_intel_dmabuf_client
++with_libevent
+ enable_clients
+ enable_resize_optimization
+ enable_weston_launch
+@@ -1752,6 +1754,7 @@
+                         (or the compiler's sysroot if not specified).
+   --with-xserver-path=PATH
+                           Path to X server
++  --with-libevent=<dir>   Use libevent from here
+   --with-cairo=[image|gl|glesv2]
+ 			   Which Cairo renderer to use for the clients
+ 
+@@ -13218,21 +13221,18 @@
  
  
  
@@ -31,7 +55,7 @@
  
  ac_fn_c_check_decl "$LINENO" "CLOCK_MONOTONIC" "ac_cv_have_decl_CLOCK_MONOTONIC" "#include <time.h>
  "
-@@ -14477,97 +14474,6 @@
+@@ -14477,97 +14477,6 @@
  
  
  pkg_failed=no
@@ -129,3 +153,59 @@
  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for COMPOSITOR" >&5
  $as_echo_n "checking for COMPOSITOR... " >&6; }
  
+@@ -15348,6 +15257,55 @@
+ fi
+ 
+ 
++# Check whether --with-libevent was given.
++if test "${with_libevent+set}" = set; then :
++  withval=$with_libevent;  libevent=$withval
++                    CPPFLAGS="$CPPFLAGS -I$withval/include"
++                    LDFLAGS="$LDFLAGS -L$withval/lib"
++fi
++
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for event_new in -levent" >&5
++$as_echo_n "checking for event_new in -levent... " >&6; }
++if ${ac_cv_lib_event_event_new+:} false; then :
++  $as_echo_n "(cached) " >&6
++else
++  ac_check_lib_save_LIBS=$LIBS
++LIBS="-levent  $LIBS"
++cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++/* Override any GCC internal prototype to avoid an error.
++   Use char because int might match the return type of a GCC
++   builtin and then its argument prototype would still apply.  */
++#ifdef __cplusplus
++extern "C"
++#endif
++char event_new ();
++int
++main ()
++{
++return event_new ();
++  ;
++  return 0;
++}
++_ACEOF
++if ac_fn_c_try_link "$LINENO"; then :
++  ac_cv_lib_event_event_new=yes
++else
++  ac_cv_lib_event_event_new=no
++fi
++rm -f core conftest.err conftest.$ac_objext \
++    conftest$ac_exeext conftest.$ac_ext
++LIBS=$ac_check_lib_save_LIBS
++fi
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_event_event_new" >&5
++$as_echo "$ac_cv_lib_event_event_new" >&6; }
++if test "x$ac_cv_lib_event_event_new" = xyes; then :
++  EVENT_LIBS="-levent -levent_pthreads"
++fi
++
++
++
+ # Check whether --with-cairo was given.
+ if test "${with_cairo+set}" = set; then :
+   withval=$with_cairo;

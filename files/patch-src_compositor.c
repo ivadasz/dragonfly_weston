@@ -1,4 +1,4 @@
---- src/compositor.c.orig	2015-10-02 22:10:28 +0200
+--- src/compositor.c.orig	2015-08-14 20:28:16 +0200
 +++ src/compositor.c
 @@ -256,7 +256,7 @@
  	 * non-CLOEXEC fd to pass through exec. */
@@ -41,7 +41,92 @@
  		return NULL;
  	}
  
-@@ -4621,18 +4622,25 @@
+@@ -2292,26 +2293,20 @@
+ 	return r;
+ }
+ 
+-static int
+-weston_compositor_read_input(int fd, uint32_t mask, void *data)
+-{
+-	struct weston_compositor *compositor = data;
+-
+-	wl_event_loop_dispatch(compositor->input_loop, 0);
+-
+-	return 1;
+-}
+-
+ static void
+ weston_output_schedule_repaint_reset(struct weston_output *output)
+ {
++#if 0
+ 	struct weston_compositor *compositor = output->compositor;
+ 	struct wl_event_loop *loop;
+ 	int fd;
++#endif
+ 
+ 	output->repaint_scheduled = 0;
+ 	TL_POINT("core_repaint_exit_loop", TLP_OUTPUT(output), TLP_END);
+ 
++/* XXX Implement similar behaviour with libevent */
++#if 0
+ 	if (compositor->input_loop_source)
+ 		return;
+ 
+@@ -2320,6 +2315,7 @@
+ 	compositor->input_loop_source =
+ 		wl_event_loop_add_fd(loop, fd, WL_EVENT_READABLE,
+ 				     weston_compositor_read_input, compositor);
++#endif
+ }
+ 
+ static int
+@@ -2470,10 +2466,13 @@
+ 	TL_POINT("core_repaint_enter_loop", TLP_OUTPUT(output), TLP_END);
+ 
+ 
++/* XXX Implement similar behaviour with libevent */
++#if 0
+ 	if (compositor->input_loop_source) {
+ 		wl_event_source_remove(compositor->input_loop_source);
+ 		compositor->input_loop_source = NULL;
+ 	}
++#endif
+ }
+ 
+ WL_EXPORT void
+@@ -4529,7 +4528,7 @@
+ 	ec->idle_source = wl_event_loop_add_timer(loop, idle_handler, ec);
+ 	wl_event_source_timer_update(ec->idle_source, ec->idle_time * 1000);
+ 
+-	ec->input_loop = wl_event_loop_create();
++	ec->input_loop = loop;
+ 
+ 	weston_layer_init(&ec->fade_layer, &ec->layer_list);
+ 	weston_layer_init(&ec->cursor_layer, &ec->fade_layer.link);
+@@ -4550,8 +4549,11 @@
+ 	struct weston_output *output, *next;
+ 
+ 	wl_event_source_remove(ec->idle_source);
++/* XXX Implement similar behaviour with libevent */
++#if 0
+ 	if (ec->input_loop_source)
+ 		wl_event_source_remove(ec->input_loop_source);
++#endif
+ 
+ 	/* Destroy all outputs associated with this compositor */
+ 	wl_list_for_each_safe(output, next, &ec->output_list, link)
+@@ -4569,7 +4571,10 @@
+ 
+ 	weston_plane_release(&ec->primary_plane);
+ 
++/* XXX Implement similar behaviour with libevent */
++#if 0
+ 	wl_event_loop_destroy(ec->input_loop);
++#endif
+ }
+ 
+ WL_EXPORT void
+@@ -4621,18 +4626,25 @@
  {
  	/* In order of preference */
  	static const clockid_t clocks[] = {
@@ -69,7 +154,7 @@
  
  	weston_log("Error: no suitable presentation clock available.\n");
  
-@@ -4666,8 +4674,9 @@
+@@ -4666,8 +4678,9 @@
  
  		if (!warned)
  			weston_log("Error: failure to read "

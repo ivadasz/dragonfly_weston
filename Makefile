@@ -7,7 +7,7 @@ COMMENT=	Wayland Default Compositor
 
 LICENSE=	MIT
 
-USES=		tar:xz gmake jpeg alias
+USES=		alias execinfo gmake jpeg tar:xz
 WRKSRC=		${WRKDIR}/${PORTNAME}-${PORTVERSION}
 CPPFLAGS+=	-I${LOCALBASE}/include
 LDFLAGS+=	-L${LOCALBASE}/lib
@@ -20,6 +20,8 @@ LIB_DEPENDS=	libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
 		libgbm.so:${PORTSDIR}/graphics/gbm			\
 		libdrm.so:${PORTSDIR}/graphics/libdrm			\
 		libffi.so:${PORTSDIR}/devel/libffi
+
+LIBS+=		-lexecinfo
 
 GNU_CONFIGURE=	YES
 

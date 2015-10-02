@@ -1,0 +1,27 @@
+--- Makefile.in.orig	2015-09-22 03:59:28 +0200
++++ Makefile.in
+@@ -1728,6 +1728,7 @@
+ EGL_TESTS_CFLAGS = @EGL_TESTS_CFLAGS@
+ EGL_TESTS_LIBS = @EGL_TESTS_LIBS@
+ EGREP = @EGREP@
++EVENT_LIBS = @EVENT_LIBS@
+ EXEEXT = @EXEEXT@
+ FBDEV_COMPOSITOR_CFLAGS = @FBDEV_COMPOSITOR_CFLAGS@
+ FBDEV_COMPOSITOR_LIBS = @FBDEV_COMPOSITOR_LIBS@
+@@ -2040,7 +2041,7 @@
+ @BUILD_WESTON_LAUNCH_TRUE@	$(LIBDRM_CFLAGS)
+ 
+ @BUILD_WESTON_LAUNCH_TRUE@weston_launch_LDADD = $(PAM_LIBS) $(SYSTEMD_LOGIN_LIBS) $(LIBDRM_LIBS)
+-pkgconfigdir = $(libdir)/pkgconfig
++pkgconfigdir = $(prefix)/libdata/pkgconfig
+ pkgconfig_DATA = src/weston.pc
+ wayland_sessiondir = $(datadir)/wayland-sessions
+ dist_wayland_session_DATA = src/weston.desktop
+@@ -2314,6 +2315,7 @@
+ 
+ @BUILD_CLIENTS_TRUE@libtoytoolkit_la_LIBADD = \
+ @BUILD_CLIENTS_TRUE@	$(CLIENT_LIBS)				\
++@BUILD_CLIENTS_TRUE@	$(EVENT_LIBS)				\
+ @BUILD_CLIENTS_TRUE@	$(CAIRO_EGL_LIBS)			\
+ @BUILD_CLIENTS_TRUE@	libshared-cairo.la -lrt -lm
+ 
