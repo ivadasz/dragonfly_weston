@@ -141,8 +141,7 @@
 -	mode.acqsig = SIGRTMIN;
 +	mode.relsig = SIGUSR1;
 +	mode.acqsig = SIGUSR1;
-+/* XXX no idea whether this is needed on FreeBSD */
-+#if defined(__DragonFly__)
++#if defined(__FreeBSD__)
 +	mode.frsig = SIGIO; /* not used, but has to be set anyway */
 +#endif
  	if (ioctl(launcher->tty, VT_SETMODE, &mode) < 0) {

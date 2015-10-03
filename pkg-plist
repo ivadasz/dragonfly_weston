@@ -1,6 +1,7 @@
 bin/wcap-decode
 bin/weston
 bin/weston-info
+bin/weston-launch
 bin/weston-terminal
 include/weston/compositor.h
 include/weston/config-parser.h
@@ -15,6 +16,8 @@ lib/weston/cms-static.la
 lib/weston/cms-static.so
 lib/weston/desktop-shell.la
 lib/weston/desktop-shell.so
+lib/weston/drm-backend.la
+lib/weston/drm-backend.so
 lib/weston/fullscreen-shell.la
 lib/weston/fullscreen-shell.so
 lib/weston/headless-backend.la
@@ -35,6 +38,7 @@ libexec/weston-screenshooter
 libexec/weston-simple-im
 man/man1/weston.1.gz
 man/man5/weston.ini.5.gz
+man/man7/weston-drm.7.gz
 share/wayland-sessions/weston.desktop
 %%DATADIR%%/background.png
 %%DATADIR%%/border.png

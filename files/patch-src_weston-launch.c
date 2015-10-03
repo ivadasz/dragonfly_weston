@@ -1,4 +1,4 @@
---- src/weston-launch.c.orig	2015-10-03 17:12:17 +0200
+--- src/weston-launch.c.orig	2015-08-11 00:28:46 +0200
 +++ src/weston-launch.c
 @@ -33,7 +33,7 @@
  #include <poll.h>
@@ -292,7 +292,7 @@
  	struct vt_mode mode = { 0 };
  	char *t;
  
-@@ -527,52 +626,64 @@
+@@ -527,52 +626,67 @@
  		else
  			wl->tty = open(tty, O_RDWR | O_NOCTTY);
  	} else {
@@ -361,13 +361,16 @@
  	mode.mode = VT_PROCESS;
  	mode.relsig = SIGUSR1;
  	mode.acqsig = SIGUSR2;
++#if defined(__FreeBSD__)
++	mode.frsig = SIGIO; /* not used, but has to be set anyway */
++#endif
  	if (ioctl(wl->tty, VT_SETMODE, &mode) < 0)
 -		error(1, errno, "failed to take control of vt handling\n");
 +		err(1, "failed to take control of vt handling");
  
  	return 0;
  }
-@@ -586,13 +697,15 @@
+@@ -586,13 +700,15 @@
  
  	if (wl->tty != STDIN_FILENO) {
  		if (setsid() < 0)
@@ -385,7 +388,7 @@
  	if (term)
  		setenv("TERM", term, 1);
  	setenv("USER", wl->pw->pw_name, 1);
-@@ -604,7 +717,7 @@
+@@ -604,7 +720,7 @@
  	if (env) {
  		for (i = 0; env[i]; ++i) {
  			if (putenv(env[i]) != 0)
@@ -394,7 +397,7 @@
  		}
  		free(env);
  	}
-@@ -618,7 +731,7 @@
+@@ -618,7 +734,7 @@
  	    initgroups(wl->pw->pw_name, wl->pw->pw_gid) < 0 ||
  #endif
  	    setuid(wl->pw->pw_uid) < 0)
@@ -403,8 +406,27 @@
  }
  
  static void
-@@ -658,7 +771,7 @@
+@@ -648,6 +764,15 @@
+ 	sigaddset(&mask, SIGINT);
+ 	sigprocmask(SIG_UNBLOCK, &mask, NULL);
+ 
++#if defined(__FreeBSD__)
++	child_argv[0] = "/bin/sh";
++	child_argv[1] = "-c";
++	child_argv[2] = BINDIR "/weston \"$@\"";
++	child_argv[3] = "weston";
++	for (i = 0; i < argc; ++i)
++		child_argv[4 + i] = argv[i];
++	child_argv[4 + i] = NULL;
++#else
+ 	child_argv[0] = "/bin/sh";
+ 	child_argv[1] = "-l";
+ 	child_argv[2] = "-c";
+@@ -656,9 +781,10 @@
+ 	for (i = 0; i < argc; ++i)
+ 		child_argv[5 + i] = argv[i];
  	child_argv[5 + i] = NULL;
++#endif
  
  	execv(child_argv[0], child_argv);
 -	error(1, errno, "exec failed");
@@ -412,7 +434,7 @@
  }
  
  static void
-@@ -692,7 +805,7 @@
+@@ -692,7 +818,7 @@
  		case 'u':
  			wl.new_user = optarg;
  			if (getuid() != 0)
@@ -421,7 +443,7 @@
  			break;
  		case 't':
  			tty = optarg;
-@@ -707,17 +820,17 @@
+@@ -707,17 +833,17 @@
  	}
  
  	if ((argc - optind) > (MAX_ARGV_SIZE - 6))
@@ -442,7 +464,7 @@
  #ifdef HAVE_SYSTEMD_LOGIN
  		      " - run from an active and local (systemd) session.\n"
  #else
-@@ -739,7 +852,7 @@
+@@ -739,7 +865,7 @@
  
  	wl.child = fork();
  	if (wl.child == -1)
@@ -451,7 +473,7 @@
  
  	if (wl.child == 0)
  		launch_compositor(&wl, argc - optind, argv + optind);
-@@ -748,6 +861,45 @@
+@@ -748,6 +874,45 @@
  	if (wl.tty != STDIN_FILENO)
  		close(wl.tty);
  
@@ -497,7 +519,7 @@
  	while (1) {
  		struct pollfd fds[2];
  		int n;
-@@ -759,12 +911,13 @@
+@@ -759,12 +924,13 @@
  
  		n = poll(fds, 2, -1);
  		if (n < 0)
