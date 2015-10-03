@@ -1,6 +1,6 @@
 PORTNAME=	weston
 PORTVERSION=	1.9.0
-CATEGORIES=	net
+CATEGORIES=	graphics
 MASTER_SITES=	http://wayland.freedesktop.org/releases/
 MAINTAINER=	imre@vdsz.com
 COMMENT=	Wayland Default Compositor
@@ -17,6 +17,8 @@ LIB_DEPENDS=	libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
 		libpixman-1.so:${PORTSDIR}/x11/pixman			\
 		libwayland-server.so:${PORTSDIR}/graphics/wayland	\
 		libwayland-client.so:${PORTSDIR}/graphics/wayland	\
+		libwayland-cursor.so:${PORTSDIR}/graphics/wayland	\
+		libevent.so:${PORTSDIR}/devel/libevent2			\
 		libffi.so:${PORTSDIR}/devel/libffi
 
 # XXX drm backend not available yet
@@ -35,4 +37,3 @@ CONFIGURE_ARGS+=	--disable-fbdev-compositor --disable-vaapi-recorder
 CONFIGURE_ARGS+=	--disable-dbus --disable-setuid-install
 
 .include <bsd.port.mk>
-
