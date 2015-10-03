@@ -31,7 +31,7 @@ GNU_CONFIGURE=	YES
 
 CONFIGURE_ENV+=		WESTON_NATIVE_BACKEND=x11-backend.so
 CONFIGURE_ARGS+=	--with-libevent=${PREFIX}
-CONFIGURE_ARGS+=	--disable-egl --disable-weston-launch
+CONFIGURE_ARGS+=	--disable-egl --enable-weston-launch
 CONFIGURE_ARGS+=	--enable-drm-compositor --disable-rpi-compositor
 CONFIGURE_ARGS+=	--disable-fbdev-compositor --disable-vaapi-recorder
 CONFIGURE_ARGS+=	--disable-dbus --disable-setuid-install
