@@ -17,16 +17,18 @@ LIB_DEPENDS=	libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
 		libpixman-1.so:${PORTSDIR}/x11/pixman			\
 		libwayland-server.so:${PORTSDIR}/graphics/wayland	\
 		libwayland-client.so:${PORTSDIR}/graphics/wayland	\
-		libgbm.so:${PORTSDIR}/graphics/gbm			\
-		libdrm.so:${PORTSDIR}/graphics/libdrm			\
 		libffi.so:${PORTSDIR}/devel/libffi
+
+# XXX drm backend not available yet
+#LIB_DEPENDS+=	libgbm.so:${PORTSDIR}/graphics/gbm			\
+#		libdrm.so:${PORTSDIR}/graphics/libdrm
 
 LIBS+=		-lexecinfo
 
 GNU_CONFIGURE=	YES
 
 CONFIGURE_ENV+=		WESTON_NATIVE_BACKEND=x11-backend.so
-#CONFIGURE_ARGS+=	--with-libevent=${PREFIX}
+CONFIGURE_ARGS+=	--with-libevent=${PREFIX}
 CONFIGURE_ARGS+=	--disable-egl --disable-weston-launch
 CONFIGURE_ARGS+=	--disable-drm-compositor --disable-rpi-compositor
 CONFIGURE_ARGS+=	--disable-fbdev-compositor --disable-vaapi-recorder
