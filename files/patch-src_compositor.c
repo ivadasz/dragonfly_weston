@@ -41,7 +41,17 @@
  		return NULL;
  	}
  
-@@ -2292,26 +2293,20 @@
+@@ -2275,7 +2276,8 @@
+ 	output->repaint_needed = 0;
+ 
+ 	weston_compositor_repick(ec);
+-	wl_event_loop_dispatch(ec->input_loop, 0);
++/* XXX can we do similar behaviour with the libevent2 event loop? */
++//	wl_event_loop_dispatch(ec->input_loop, 0);
+ 
+ 	wl_list_for_each_safe(cb, cnext, &frame_callback_list, link) {
+ 		wl_callback_send_done(cb->resource, output->frame_time);
+@@ -2292,26 +2294,20 @@
  	return r;
  }
  
@@ -72,7 +82,7 @@
  	if (compositor->input_loop_source)
  		return;
  
-@@ -2320,6 +2315,7 @@
+@@ -2320,6 +2316,7 @@
  	compositor->input_loop_source =
  		wl_event_loop_add_fd(loop, fd, WL_EVENT_READABLE,
  				     weston_compositor_read_input, compositor);
@@ -80,7 +90,7 @@
  }
  
  static int
-@@ -2470,10 +2466,13 @@
+@@ -2470,10 +2467,13 @@
  	TL_POINT("core_repaint_enter_loop", TLP_OUTPUT(output), TLP_END);
  
  
@@ -94,7 +104,7 @@
  }
  
  WL_EXPORT void
-@@ -4529,7 +4528,7 @@
+@@ -4529,7 +4529,7 @@
  	ec->idle_source = wl_event_loop_add_timer(loop, idle_handler, ec);
  	wl_event_source_timer_update(ec->idle_source, ec->idle_time * 1000);
  
@@ -103,7 +113,7 @@
  
  	weston_layer_init(&ec->fade_layer, &ec->layer_list);
  	weston_layer_init(&ec->cursor_layer, &ec->fade_layer.link);
-@@ -4550,8 +4549,11 @@
+@@ -4550,8 +4550,11 @@
  	struct weston_output *output, *next;
  
  	wl_event_source_remove(ec->idle_source);
@@ -115,7 +125,7 @@
  
  	/* Destroy all outputs associated with this compositor */
  	wl_list_for_each_safe(output, next, &ec->output_list, link)
-@@ -4569,7 +4571,10 @@
+@@ -4569,7 +4572,10 @@
  
  	weston_plane_release(&ec->primary_plane);
  
@@ -126,7 +136,7 @@
  }
  
  WL_EXPORT void
-@@ -4621,18 +4626,25 @@
+@@ -4621,18 +4627,25 @@
  {
  	/* In order of preference */
  	static const clockid_t clocks[] = {
@@ -154,7 +164,7 @@
  
  	weston_log("Error: no suitable presentation clock available.\n");
  
-@@ -4666,8 +4678,9 @@
+@@ -4666,8 +4679,9 @@
  
  		if (!warned)
  			weston_log("Error: failure to read "
