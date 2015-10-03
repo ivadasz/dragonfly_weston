@@ -94,7 +94,7 @@
  		return -1;
  	}
  	if (kd_mode != KD_TEXT) {
-@@ -331,41 +342,29 @@
+@@ -331,41 +341,28 @@
  		goto err_close;
  	}
  
@@ -147,7 +147,7 @@
  	if (ioctl(launcher->tty, VT_SETMODE, &mode) < 0) {
  		weston_log("failed to take control of vt handling\n");
  		goto err_close;
-@@ -373,7 +372,7 @@
+@@ -373,7 +371,7 @@
  
  	loop = wl_display_get_event_loop(launcher->compositor->wl_display);
  	launcher->vt_source =
@@ -156,7 +156,7 @@
  	if (!launcher->vt_source)
  		goto err_close;
  
-@@ -414,7 +413,11 @@
+@@ -414,7 +412,11 @@
  		/* We don't get a chance to read out the original kb
  		 * mode for the tty, so just hard code K_UNICODE here
  		 * in case we have to clean if weston-launch dies. */

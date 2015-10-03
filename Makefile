@@ -26,6 +26,7 @@ LIB_DEPENDS+=	libgbm.so:${PORTSDIR}/graphics/gbm			\
 		libdrm.so:${PORTSDIR}/graphics/libdrm
 
 LIBS+=		-lexecinfo
+LIBS+=		-lkbdev
 
 GNU_CONFIGURE=	YES
 

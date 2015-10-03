@@ -9,7 +9,7 @@
  #include <getopt.h>
  
  #include <sys/types.h>
-@@ -41,14 +41,23 @@
+@@ -41,14 +41,24 @@
  #include <sys/stat.h>
  #include <sys/wait.h>
  #include <sys/socket.h>
@@ -23,6 +23,7 @@
  #include <fcntl.h>
  
 +#if defined(__FreeBSD__)
++#include <termios.h>
 +#include <sys/consio.h>
 +#include <sys/kbio.h>
 +#else
@@ -33,7 +34,27 @@
  
  #include <pwd.h>
  #include <grp.h>
-@@ -100,10 +109,13 @@
+@@ -60,8 +70,11 @@
+ 
+ #include "weston-launch.h"
+ 
++//#if !defined(__FreeBSD__)
+ #define DRM_MAJOR 226
++//#endif
+ 
++#if !defined(__FreeBSD__)
+ #ifndef KDSKBMUTE
+ #define KDSKBMUTE	0x4B51
+ #endif
+@@ -69,6 +82,7 @@
+ #ifndef EVIOCREVOKE
+ #define EVIOCREVOKE _IOW('E', 0x91, int)
+ #endif
++#endif
+ 
+ #define MAX_ARGV_SIZE 256
+ 
+@@ -100,10 +114,15 @@
  	int sock[2];
  	int drm_fd;
  	int last_input_fd;
@@ -41,13 +62,15 @@
  	int kb_mode;
  	struct passwd *pw;
  
-+#if !defined(__FreeBSD__)
++#if defined(__FreeBSD__)
++	struct event_base *evbase;
++#else
  	int signalfd;
 +#endif
  
  	pid_t child;
  	int verbose;
-@@ -226,10 +238,10 @@
+@@ -226,10 +245,10 @@
  setup_launcher_socket(struct weston_launch *wl)
  {
  	if (socketpair(AF_LOCAL, SOCK_SEQPACKET, 0, wl->sock) < 0)
@@ -60,7 +83,7 @@
  
  	return 0;
  }
-@@ -261,9 +273,11 @@
+@@ -261,9 +280,11 @@
  	ret = sigprocmask(SIG_BLOCK, &mask, NULL);
  	assert(ret == 0);
  
@@ -72,27 +95,49 @@
  
  	return 0;
  }
-@@ -300,6 +314,7 @@
+@@ -300,6 +321,8 @@
  	struct iovec iov;
  	struct weston_launcher_open *message;
  	union cmsg_data *data;
 +	char *path = NULL;
++	char filename[16];
  
  	message = msg->msg_iov->iov_base;
  	if ((size_t)len < sizeof(*message))
-@@ -314,6 +329,8 @@
- 			message->path);
+@@ -308,28 +331,51 @@
+ 	/* Ensure path is null-terminated */
+ 	((char *) message)[len-1] = '\0';
+ 
+-	fd = open(message->path, message->flags);
++	if (strcmp(message->path, "tty") == 0) {
++		if (wl->ttynr < 0) {
++			path = strdup("/dev/tty");
++		} else {
++			snprintf(filename, 15, "/dev/ttyv%d", wl->ttynr - 1);
++			path = strdup(filename);
++		}
++	} else {
++		path = strdup(message->path);
++	}
++	fd = open(path, message->flags);
+ 	if (fd < 0) {
+ 		fprintf(stderr, "Error opening device %s: %m\n",
+-			message->path);
++			path);
  		goto err0;
  	}
-+	printf("opened device %s to fd %d\n", message->path, fd);
-+	path = strdup(message->path);
++	printf("opened device %s to fd %d\n", path, fd);
  
  	if (fstat(fd, &s) < 0) {
  		close(fd);
-@@ -322,6 +339,16 @@
+ 		fd = -1;
+-		fprintf(stderr, "Failed to stat %s\n", message->path);
++		fprintf(stderr, "Failed to stat %s\n", path);
  		goto err0;
  	}
  
+-	if (major(s.st_rdev) != INPUT_MAJOR &&
+-	    major(s.st_rdev) != DRM_MAJOR) {
 +#if defined(__FreeBSD__)
 +	if (major(s.st_rdev) != DRM_MAJOR) {
 +		if (fd-3 >= 16) {
@@ -102,11 +147,13 @@
 +			goto err0;
 +		}
 +	}
-+#else
- 	if (major(s.st_rdev) != INPUT_MAJOR &&
- 	    major(s.st_rdev) != DRM_MAJOR) {
++#endif
++
++#if !defined(__FreeBSD__)
++	if (major(s.st_rdev) != DRM_MAJOR) {
  		close(fd);
-@@ -330,6 +357,7 @@
+ 		fd = -1;
+ 		fprintf(stderr, "Device %s is not an input or drm device\n",
  			message->path);
  		goto err0;
  	}
@@ -114,7 +161,13 @@
  
  err0:
  	memset(&nmsg, 0, sizeof nmsg);
-@@ -357,26 +385,48 @@
+@@ -352,31 +398,53 @@
+ 
+ 	if (wl->verbose)
+ 		fprintf(stderr, "weston-launch: opened %s: ret: %d, fd: %d\n",
+-			message->path, ret, fd);
++			path, ret, fd);
+ 	do {
  		len = sendmsg(wl->sock[0], &nmsg, 0);
  	} while (len < 0 && errno == EINTR);
  
@@ -130,7 +183,7 @@
  	if (fd != -1 && major(s.st_rdev) == DRM_MAJOR)
  		wl->drm_fd = fd;
 +#if defined(__FreeBSD__)
-+	else if (fd != -1 &&
++	if (fd != -1 &&
 +	    wl->last_input_fd < fd) {
 +		wl->last_input_fd = fd;
 +		wl->input_path[fd-3] = path;
@@ -164,15 +217,20 @@
  	ssize_t len;
  	struct weston_launcher_message *message;
  
-@@ -393,16 +443,28 @@
+@@ -392,17 +460,32 @@
+ 		len = recvmsg(wl->sock[0], &msg, 0);
  	} while (len < 0 && errno == EINTR);
  
- 	if (len < 1)
+-	if (len < 1)
++	if (len < 1) {
 +#if defined(__FreeBSD__)
++		if (errno != EAGAIN)
++			event_base_loopbreak(wl->evbase);
 +		return;
 +#else
  		return -1;
 +#endif
++	}
  
  	message = (void *) buf;
  	switch (message->opcode) {
@@ -193,7 +251,7 @@
  }
  
  static void
-@@ -411,7 +473,9 @@
+@@ -411,7 +494,9 @@
  	struct vt_mode mode = { 0 };
  	int err;
  
@@ -203,18 +261,36 @@
  	close(wl->sock[0]);
  
  	if (wl->new_user) {
-@@ -448,27 +512,48 @@
+@@ -422,8 +507,12 @@
+ 		pam_end(wl->ph, err);
+ 	}
+ 
++#if defined(__FreeBSD__)
++	if (ioctl(wl->tty, KDSKBMODE, wl->kb_mode))
++#else
+ 	if (ioctl(wl->tty, KDSKBMUTE, 0) &&
+ 	    ioctl(wl->tty, KDSKBMODE, wl->kb_mode))
++#endif
+ 		fprintf(stderr, "failed to restore keyboard mode: %m\n");
+ 
+ 	if (ioctl(wl->tty, KDSETMODE, KD_TEXT))
+@@ -447,28 +536,55 @@
+ 	struct stat s;
  	int fd;
  
++	printf("%s: closing input fds\n", __func__);
++
  	for (fd = 3; fd <= wl->last_input_fd; fd++) {
 +#if defined(__FreeBSD__)
 +		if (fstat(fd, &s) == 0) {
++			if (wl->input_path[fd-3] != NULL) {
++				printf("revoking access to device %s\n", wl->input_path[fd-3]);
++				revoke(wl->input_path[fd-3]);
++				free(wl->input_path[fd-3]);
++				wl->input_path[fd-3] = NULL;
++			}
 +#else
  		if (fstat(fd, &s) == 0 && major(s.st_rdev) == INPUT_MAJOR) {
-+#endif
-+#if defined(__FreeBSD__)
-+			revoke(wl->input_path[fd-3]);
-+#else
  			/* EVIOCREVOKE may fail if the kernel doesn't
  			 * support it, but all we can do is ignore it. */
  			ioctl(fd, EVIOCREVOKE, 0);
@@ -244,6 +320,8 @@
  		return -1;
  	}
 +#endif
++
++	warnx("%s: running", __func__);
  
 +#if defined(__FreeBSD__)
 +	switch (fd) {
@@ -253,7 +331,7 @@
  	case SIGCHLD:
  		pid = waitpid(-1, &status, 0);
  		if (pid == wl->child) {
-@@ -491,7 +576,11 @@
+@@ -491,33 +607,51 @@
  	case SIGTERM:
  	case SIGINT:
  		if (wl->child)
@@ -264,8 +342,16 @@
 +#endif
  		break;
  	case SIGUSR1:
++		warnx("%s: leaving vt", __func__);
  		send_reply(wl, WESTON_LAUNCHER_DEACTIVATE);
-@@ -505,16 +594,26 @@
+ 		close_input_fds(wl);
+ 		drmDropMaster(wl->drm_fd);
+ 		ioctl(wl->tty, VT_RELDISP, 1);
+ 		break;
+ 	case SIGUSR2:
++		warnx("%s: entering vt", __func__);
+ 		ioctl(wl->tty, VT_RELDISP, VT_ACKACQ);
+ 		drmSetMaster(wl->drm_fd);
  		send_reply(wl, WESTON_LAUNCHER_ACTIVATE);
  		break;
  	default:
@@ -292,7 +378,12 @@
  	struct vt_mode mode = { 0 };
  	char *t;
  
-@@ -527,52 +626,67 @@
++	wl->ttynr = -1;
++
+ 	if (!wl->new_user) {
+ 		wl->tty = STDIN_FILENO;
+ 	} else if (tty) {
+@@ -527,52 +661,89 @@
  		else
  			wl->tty = open(tty, O_RDWR | O_NOCTTY);
  	} else {
@@ -312,7 +403,8 @@
 +			err(1, "failed to find non-opened console");
  
 +#if defined(__FreeBSD__)
-+		snprintf(filename, sizeof filename, "/dev/ttyv%d", wl->ttynr);
++		snprintf(filename, sizeof filename, "/dev/ttyv%d", wl->ttynr - 1);
++		printf("%s: using tty %s\n", __func__, filename);
 +#else
  		snprintf(filename, sizeof filename, "/dev/tty%d", wl->ttynr);
 +#endif
@@ -342,12 +434,25 @@
  		wl->ttynr = minor(buf.st_rdev);
  	}
 +#endif
++
++#if defined(__FreeBSD__)
++	printf("%s: wl->ttynr = %d\n", __func__, wl->ttynr);
++	if (wl->ttynr > 0) {
++		if (ioctl(wl->tty, VT_ACTIVATE, wl->ttynr) != 0)
++			err(1, "VT_ACTIVATE");
++		if (ioctl(wl->tty, VT_WAITACTIVE, wl->ttynr) != 0)
++			err(1, "VT_ACTIVATE");
++	}
++#endif
  
  	if (ioctl(wl->tty, KDGKBMODE, &wl->kb_mode))
 -		error(1, errno, "failed to get current keyboard mode: %m\n");
 +		err(1, "failed to get current keyboard mode");
  
-+#if !defined(__FreeBSD__)
++#if defined(__FreeBSD__)
++	if (ioctl(wl->tty, KDSKBMODE, K_CODE))
++		err(1, "failed to set K_CODE keyboard mode");
++#else
  	if (ioctl(wl->tty, KDSKBMUTE, 1) &&
  	    ioctl(wl->tty, KDSKBMODE, K_OFF))
 -		error(1, errno, "failed to set K_OFF keyboard mode: %m\n");
@@ -357,6 +462,14 @@
  	if (ioctl(wl->tty, KDSETMODE, KD_GRAPHICS))
 -		error(1, errno, "failed to set KD_GRAPHICS mode on tty: %m\n");
 +		err(1, "failed to set KD_GRAPHICS mode on tty");
++
++#if defined(__FreeBSD__)
++	/* Put the tty into raw mode */
++	struct termios tios;
++	tcgetattr(wl->tty, &tios);
++	cfmakeraw(&tios);
++	tcsetattr(wl->tty, TCSAFLUSH, &tios);
++#endif
  
  	mode.mode = VT_PROCESS;
  	mode.relsig = SIGUSR1;
@@ -370,7 +483,7 @@
  
  	return 0;
  }
-@@ -586,13 +700,15 @@
+@@ -586,28 +757,37 @@
  
  	if (wl->tty != STDIN_FILENO) {
  		if (setsid() < 0)
@@ -382,13 +495,22 @@
  	}
  
  	term = getenv("TERM");
-+#if !defined(__FreeBSD__)
++	char *xdg_runtime = getenv("XDG_RUNTIME_DIR");
++#if defined(__FreeBSD__)
++	extern char **environ;
++	environ = NULL;
++#else
  	clearenv();
 +#endif
  	if (term)
  		setenv("TERM", term, 1);
  	setenv("USER", wl->pw->pw_name, 1);
-@@ -604,7 +720,7 @@
+ 	setenv("LOGNAME", wl->pw->pw_name, 1);
+ 	setenv("HOME", wl->pw->pw_dir, 1);
+ 	setenv("SHELL", wl->pw->pw_shell, 1);
++	setenv("XDG_RUNTIME_DIR", xdg_runtime, 1);
+ 
+ 	env = pam_getenvlist(wl->ph);
  	if (env) {
  		for (i = 0; env[i]; ++i) {
  			if (putenv(env[i]) != 0)
@@ -397,7 +519,12 @@
  		}
  		free(env);
  	}
-@@ -618,7 +734,7 @@
++
++	chdir(wl->pw->pw_dir);
+ }
+ 
+ static void
+@@ -618,7 +798,7 @@
  	    initgroups(wl->pw->pw_name, wl->pw->pw_gid) < 0 ||
  #endif
  	    setuid(wl->pw->pw_uid) < 0)
@@ -406,35 +533,35 @@
  }
  
  static void
-@@ -648,6 +764,15 @@
+@@ -648,6 +828,17 @@
  	sigaddset(&mask, SIGINT);
  	sigprocmask(SIG_UNBLOCK, &mask, NULL);
  
 +#if defined(__FreeBSD__)
-+	child_argv[0] = "/bin/sh";
++	child_argv[0] = "-/bin/sh";
 +	child_argv[1] = "-c";
 +	child_argv[2] = BINDIR "/weston \"$@\"";
 +	child_argv[3] = "weston";
 +	for (i = 0; i < argc; ++i)
 +		child_argv[4 + i] = argv[i];
 +	child_argv[4 + i] = NULL;
++
++	execv("/bin/sh", child_argv);
 +#else
  	child_argv[0] = "/bin/sh";
  	child_argv[1] = "-l";
  	child_argv[2] = "-c";
-@@ -656,9 +781,10 @@
- 	for (i = 0; i < argc; ++i)
- 		child_argv[5 + i] = argv[i];
+@@ -658,7 +849,8 @@
  	child_argv[5 + i] = NULL;
-+#endif
  
  	execv(child_argv[0], child_argv);
 -	error(1, errno, "exec failed");
++#endif
 +	err(1, "exec failed");
  }
  
  static void
-@@ -692,7 +818,7 @@
+@@ -692,7 +884,7 @@
  		case 'u':
  			wl.new_user = optarg;
  			if (getuid() != 0)
@@ -443,7 +570,7 @@
  			break;
  		case 't':
  			tty = optarg;
-@@ -707,17 +833,17 @@
+@@ -707,17 +899,17 @@
  	}
  
  	if ((argc - optind) > (MAX_ARGV_SIZE - 6))
@@ -464,7 +591,7 @@
  #ifdef HAVE_SYSTEMD_LOGIN
  		      " - run from an active and local (systemd) session.\n"
  #else
-@@ -739,7 +865,7 @@
+@@ -739,7 +931,7 @@
  
  	wl.child = fork();
  	if (wl.child == -1)
@@ -473,23 +600,23 @@
  
  	if (wl.child == 0)
  		launch_compositor(&wl, argc - optind, argv + optind);
-@@ -748,6 +874,45 @@
+@@ -748,6 +940,45 @@
  	if (wl.tty != STDIN_FILENO)
  		close(wl.tty);
  
 +#if defined(__FreeBSD__)
-+	struct event_base *evbase = event_base_new();
-+	struct event *sockev = event_new(evbase, wl.sock[0],
++	wl.evbase = event_base_new();
++	struct event *sockev = event_new(wl.evbase, wl.sock[0],
 +	    EV_READ | EV_PERSIST, handle_socket_msg, &wl);
-+	struct event *chldev = evsignal_new(evbase, SIGCHLD, handle_signal,
++	struct event *chldev = evsignal_new(wl.evbase, SIGCHLD, handle_signal,
 +	    &wl);
-+	struct event *intev = evsignal_new(evbase, SIGINT, handle_signal,
++	struct event *intev = evsignal_new(wl.evbase, SIGINT, handle_signal,
 +	    &wl);
-+	struct event *termev = evsignal_new(evbase, SIGTERM, handle_signal,
++	struct event *termev = evsignal_new(wl.evbase, SIGTERM, handle_signal,
 +	    &wl);
-+	struct event *usr1ev = evsignal_new(evbase, SIGUSR1, handle_signal,
++	struct event *usr1ev = evsignal_new(wl.evbase, SIGUSR1, handle_signal,
 +	    &wl);
-+	struct event *usr2ev = evsignal_new(evbase, SIGUSR2, handle_signal,
++	struct event *usr2ev = evsignal_new(wl.evbase, SIGUSR2, handle_signal,
 +	    &wl);
 +
 +	event_add(sockev, NULL);
@@ -499,7 +626,7 @@
 +	event_add(usr1ev, NULL);
 +	event_add(usr2ev, NULL);
 +
-+	event_base_loop(evbase, 0);
++	event_base_loop(wl.evbase, 0);
 +
 +	event_del(sockev);
 +	event_del(chldev);
@@ -514,12 +641,12 @@
 +	event_free(usr1ev);
 +	event_free(usr2ev);
 +	event_free(sockev);
-+	event_base_free(evbase);
++	event_base_free(wl.evbase);
 +#else
  	while (1) {
  		struct pollfd fds[2];
  		int n;
-@@ -759,12 +924,13 @@
+@@ -759,12 +990,13 @@
  
  		n = poll(fds, 2, -1);
  		if (n < 0)
