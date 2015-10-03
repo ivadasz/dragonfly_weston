@@ -1,4 +1,4 @@
---- src/launcher-util.c.orig	2015-10-01 23:03:35 +0200
+--- src/launcher-util.c.orig	2015-06-15 22:04:18 +0200
 +++ src/launcher-util.c
 @@ -39,9 +39,14 @@
  #include <sys/ioctl.h>
@@ -94,7 +94,7 @@
  		return -1;
  	}
  	if (kd_mode != KD_TEXT) {
-@@ -331,41 +341,28 @@
+@@ -331,41 +342,28 @@
  		goto err_close;
  	}
  
@@ -168,3 +168,13 @@
  
  		loop = wl_display_get_event_loop(compositor->wl_display);
  		launcher->source = wl_event_loop_add_fd(loop, launcher->fd,
+@@ -463,3 +465,9 @@
+ 
+ 	free(launcher);
+ }
++
++int
++weston_launcher_ttyfd(struct weston_launcher *launcher)
++{
++	return launcher->tty;
++}

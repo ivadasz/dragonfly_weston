@@ -35,6 +35,6 @@ CONFIGURE_ARGS+=	--with-libevent=${PREFIX}
 CONFIGURE_ARGS+=	--disable-egl --enable-weston-launch
 CONFIGURE_ARGS+=	--enable-drm-compositor --disable-rpi-compositor
 CONFIGURE_ARGS+=	--disable-fbdev-compositor --disable-vaapi-recorder
-CONFIGURE_ARGS+=	--disable-dbus --disable-setuid-install
+CONFIGURE_ARGS+=	--disable-dbus --enable-setuid-install
 
 .include <bsd.port.mk>

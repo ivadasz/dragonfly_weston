@@ -351,7 +351,7 @@
  static void
  update_outputs(struct drm_backend *b, struct udev_device *drm_device)
  {
-@@ -2693,6 +2769,149 @@
+@@ -2693,6 +2769,146 @@
  
  	return 1;
  }
@@ -455,11 +455,8 @@
 +	}
 +
 +	if (b->kbd_fd == -1) {
-+		char *ttyfdstr = getenv("WESTON_TTY_FD");
-+		printf("%s: tty fd string: %s\n", __func__,
-+		    ttyfdstr != NULL ? ttyfdstr : "NULL");
-+		if (ttyfdstr != NULL)
-+			b->kbd_fd = atoi(ttyfdstr);
++		b->kbd_fd = weston_launcher_ttyfd(b->compositor->launcher);
++		printf("tty fd from weston-launcher: %d\n", b->kbd_fd);
 +		if (b->kbd_fd < 0)
 +			b->kbd_fd = weston_launcher_open(
 +			    b->compositor->launcher, "tty",
@@ -501,7 +498,7 @@
  
  static void
  drm_restore(struct weston_compositor *ec)
-@@ -2705,9 +2924,16 @@
+@@ -2705,9 +2921,16 @@
  {
  	struct drm_backend *b = (struct drm_backend *) ec->backend;
  
@@ -518,7 +515,7 @@
  	wl_event_source_remove(b->drm_source);
  
  	destroy_sprites(b);
-@@ -2749,9 +2975,10 @@
+@@ -2749,9 +2972,10 @@
  				     &drm_mode->mode_info);
  		if (ret < 0) {
  			weston_log(
@@ -531,7 +528,7 @@
  		}
  	}
  }
-@@ -2769,10 +2996,18 @@
+@@ -2769,10 +2993,18 @@
  		compositor->state = b->prev_state;
  		drm_backend_set_modes(b);
  		weston_compositor_damage_all(compositor);
@@ -550,7 +547,7 @@
  
  		b->prev_state = compositor->state;
  		weston_compositor_offscreen(compositor);
-@@ -2807,9 +3042,12 @@
+@@ -2807,9 +3039,12 @@
  {
  	struct weston_compositor *compositor = data;
  
@@ -563,7 +560,7 @@
  /*
   * Find primary GPU
   * Some systems may have multiple DRM devices attached to a single seat. This
-@@ -2865,6 +3103,7 @@
+@@ -2865,6 +3100,7 @@
  	udev_enumerate_unref(e);
  	return drm_device;
  }
@@ -571,7 +568,7 @@
  
  static void
  planes_binding(struct weston_keyboard *keyboard, uint32_t time, uint32_t key,
-@@ -2925,7 +3164,7 @@
+@@ -2925,7 +3161,7 @@
  	ret = vaapi_recorder_frame(output->recorder, fd,
  				   output->current->stride);
  	if (ret < 0) {
@@ -580,7 +577,7 @@
  		recorder_destroy(output);
  	}
  }
-@@ -3059,17 +3298,23 @@
+@@ -3059,17 +3295,23 @@
  {
  	struct drm_backend *b;
  	struct weston_config_section *section;
@@ -604,7 +601,7 @@
  	/*
  	 * KMS support for hardware planes cannot properly synchronize
  	 * without nuclear page flip. Without nuclear/atomic, hw plane
-@@ -3100,23 +3345,33 @@
+@@ -3100,23 +3342,33 @@
  		goto err_compositor;
  	}
  
@@ -638,7 +635,7 @@
  		weston_log("failed to initialize kms\n");
  		goto err_udev_dev;
  	}
-@@ -3138,7 +3393,7 @@
+@@ -3138,7 +3390,7 @@
  
  	b->prev_state = WESTON_COMPOSITOR_ACTIVE;
  
@@ -647,7 +644,7 @@
  		weston_compositor_add_key_binding(compositor, key,
  						  MODIFIER_CTRL | MODIFIER_ALT,
  						  switch_vt_binding, compositor);
-@@ -3146,13 +3401,21 @@
+@@ -3146,13 +3398,21 @@
  	wl_list_init(&b->sprite_list);
  	create_sprites(b);
  
@@ -669,7 +666,7 @@
  		weston_log("failed to create output for %s\n", path);
  		goto err_udev_input;
  	}
-@@ -3164,11 +3427,11 @@
+@@ -3164,11 +3424,11 @@
  
  	path = NULL;
  
@@ -682,7 +679,7 @@
  	b->udev_monitor = udev_monitor_new_from_netlink(b->udev, "udev");
  	if (b->udev_monitor == NULL) {
  		weston_log("failed to intialize udev monitor\n");
-@@ -3187,6 +3450,7 @@
+@@ -3187,6 +3447,7 @@
  	}
  
  	udev_device_unref(drm_device);
@@ -690,7 +687,7 @@
  
  	weston_compositor_add_debug_binding(compositor, KEY_O,
  					    planes_binding, b);
-@@ -3209,22 +3473,30 @@
+@@ -3209,22 +3470,30 @@
  
  	return b;
  
@@ -721,7 +718,7 @@
  err_compositor:
  	weston_compositor_shutdown(compositor);
  err_base:
-@@ -3241,7 +3513,9 @@
+@@ -3241,7 +3510,9 @@
  
  	const struct weston_option drm_options[] = {
  		{ WESTON_OPTION_INTEGER, "connector", 0, &param.connector },
