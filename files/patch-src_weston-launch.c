@@ -558,19 +558,29 @@
  static int
  setup_tty(struct weston_launch *wl, const char *tty)
  {
-@@ -518,6 +773,8 @@
+@@ -518,6 +773,14 @@
  	struct vt_mode mode = { 0 };
  	char *t;
  
 +	wl->ttynr = -1;
 +
++
++#if defined(__FreeBSD__)
++	if (tty) {
++		errx(1, "tty option not supported on DragonFly");
++	}
++#else
  	if (!wl->new_user) {
  		wl->tty = STDIN_FILENO;
  	} else if (tty) {
-@@ -527,52 +784,107 @@
+@@ -526,53 +789,111 @@
+ 			wl->tty = STDIN_FILENO;
  		else
  			wl->tty = open(tty, O_RDWR | O_NOCTTY);
- 	} else {
+-	} else {
++	}
++#endif
++	else {
 +#if defined(__FreeBSD__)
 +		int tty0 = open("/dev/ttyv0", O_WRONLY | O_CLOEXEC);
 +#else
@@ -608,7 +618,8 @@
 +			errx(1, "weston-launch must be run from a virtual "
 +			    "terminal");
 +		free(ttydrv);
-+		wl->ttynr = minor(buf.st_rdev);
++		if (wl->ttynr == -1)
++			wl->ttynr = minor(buf.st_rdev) + 1;
 +	}
 +#else
  	if (fstat(wl->tty, &buf) == -1 ||
@@ -632,11 +643,12 @@
  		if (major(buf.st_rdev) != TTY_MAJOR)
 -			error(1, 0, "invalid tty device: %s", tty);
 +			errx(1, "invalid tty device: %s", tty);
- 
++
 +#endif
- 		wl->ttynr = minor(buf.st_rdev);
- 	}
++		wl->ttynr = minor(buf.st_rdev) + 1;
++	}
  
+-		wl->ttynr = minor(buf.st_rdev);
 +#if defined(__FreeBSD__)
 +	printf("%s: wl->ttynr = %d\n", __func__, wl->ttynr);
 +	if (wl->ttynr > 0) {
@@ -644,9 +656,9 @@
 +			err(1, "VT_ACTIVATE");
 +		if (ioctl(wl->tty, VT_WAITACTIVE, wl->ttynr) != 0)
 +			err(1, "VT_ACTIVATE");
-+	}
+ 	}
 +#endif
-+
+ 
  	if (ioctl(wl->tty, KDGKBMODE, &wl->kb_mode))
 -		error(1, errno, "failed to get current keyboard mode: %m\n");
 +		err(1, "failed to get current keyboard mode");
@@ -685,7 +697,7 @@
  
  	return 0;
  }
-@@ -586,28 +898,37 @@
+@@ -586,28 +907,37 @@
  
  	if (wl->tty != STDIN_FILENO) {
  		if (setsid() < 0)
@@ -726,7 +738,7 @@
  }
  
  static void
-@@ -618,7 +939,7 @@
+@@ -618,7 +948,7 @@
  	    initgroups(wl->pw->pw_name, wl->pw->pw_gid) < 0 ||
  #endif
  	    setuid(wl->pw->pw_uid) < 0)
@@ -735,7 +747,7 @@
  }
  
  static void
-@@ -646,8 +967,28 @@
+@@ -646,8 +976,28 @@
  	sigaddset(&mask, SIGTERM);
  	sigaddset(&mask, SIGCHLD);
  	sigaddset(&mask, SIGINT);
@@ -764,7 +776,7 @@
  	child_argv[0] = "/bin/sh";
  	child_argv[1] = "-l";
  	child_argv[2] = "-c";
-@@ -658,7 +999,8 @@
+@@ -658,7 +1008,8 @@
  	child_argv[5 + i] = NULL;
  
  	execv(child_argv[0], child_argv);
@@ -774,7 +786,7 @@
  }
  
  static void
-@@ -692,7 +1034,7 @@
+@@ -692,7 +1043,7 @@
  		case 'u':
  			wl.new_user = optarg;
  			if (getuid() != 0)
@@ -783,7 +795,7 @@
  			break;
  		case 't':
  			tty = optarg;
-@@ -707,17 +1049,17 @@
+@@ -707,17 +1058,17 @@
  	}
  
  	if ((argc - optind) > (MAX_ARGV_SIZE - 6))
@@ -804,7 +816,7 @@
  #ifdef HAVE_SYSTEMD_LOGIN
  		      " - run from an active and local (systemd) session.\n"
  #else
-@@ -725,6 +1067,11 @@
+@@ -725,6 +1076,11 @@
  #endif
  		      " - or add yourself to the 'weston-launch' group.");
  
@@ -816,7 +828,7 @@
  	if (setup_tty(&wl, tty) < 0)
  		exit(EXIT_FAILURE);
  
-@@ -739,15 +1086,59 @@
+@@ -739,15 +1095,59 @@
  
  	wl.child = fork();
  	if (wl.child == -1)
@@ -877,7 +889,7 @@
  	while (1) {
  		struct pollfd fds[2];
  		int n;
-@@ -759,12 +1150,13 @@
+@@ -759,12 +1159,13 @@
  
  		n = poll(fds, 2, -1);
  		if (n < 0)
