@@ -498,7 +498,7 @@
  
  static void
  drm_restore(struct weston_compositor *ec)
-@@ -2705,9 +2921,16 @@
+@@ -2705,9 +2921,15 @@
  {
  	struct drm_backend *b = (struct drm_backend *) ec->backend;
  
@@ -506,7 +506,6 @@
 +	wl_event_source_remove(b->sysmouse_source);
 +	wl_event_source_remove(b->kbd_source);
 +	close(b->sysmouse_fd);
-+	close(b->kbd_fd);
 +#else
  	udev_input_destroy(&b->input);
  
@@ -515,7 +514,7 @@
  	wl_event_source_remove(b->drm_source);
  
  	destroy_sprites(b);
-@@ -2749,9 +2972,10 @@
+@@ -2749,9 +2971,10 @@
  				     &drm_mode->mode_info);
  		if (ret < 0) {
  			weston_log(
@@ -528,26 +527,37 @@
  		}
  	}
  }
-@@ -2769,10 +2993,18 @@
+@@ -2769,10 +2992,29 @@
  		compositor->state = b->prev_state;
  		drm_backend_set_modes(b);
  		weston_compositor_damage_all(compositor);
 +#if defined(__FreeBSD__)
-+		/* XXX enable keyboard/mouse input sources */
++		/* XXX enable mouse input source */
++		b->kbd_source = wl_event_loop_add_fd(
++		    wl_display_get_event_loop(b->compositor->wl_display),
++		    b->kbd_fd, WL_EVENT_READABLE, drm_kbd_handler, b);
++		kbdev_reset_state(b->kbdst);
++		struct wl_array keys;
++		wl_array_init(&keys);
++		notify_keyboard_focus_in(&b->syscons_seat, &keys, STATE_UPDATE_AUTOMATIC);
++		wl_array_release(&keys);
 +#else
  		udev_input_enable(&b->input);
 +#endif
  	} else {
  		weston_log("deactivating session\n");
 +#if defined(__FreeBSD__)
-+		/* XXX disable keyboard/mouse input sources */
++		wl_event_source_remove(b->sysmouse_source);
++		wl_event_source_remove(b->kbd_source);
++		notify_keyboard_focus_out(&b->syscons_seat);
++		close(b->sysmouse_fd);
 +#else
  		udev_input_disable(&b->input);
 +#endif
  
  		b->prev_state = compositor->state;
  		weston_compositor_offscreen(compositor);
-@@ -2807,9 +3039,12 @@
+@@ -2807,9 +3049,12 @@
  {
  	struct weston_compositor *compositor = data;
  
@@ -560,7 +570,7 @@
  /*
   * Find primary GPU
   * Some systems may have multiple DRM devices attached to a single seat. This
-@@ -2865,6 +3100,7 @@
+@@ -2865,6 +3110,7 @@
  	udev_enumerate_unref(e);
  	return drm_device;
  }
@@ -568,7 +578,7 @@
  
  static void
  planes_binding(struct weston_keyboard *keyboard, uint32_t time, uint32_t key,
-@@ -2925,7 +3161,7 @@
+@@ -2925,7 +3171,7 @@
  	ret = vaapi_recorder_frame(output->recorder, fd,
  				   output->current->stride);
  	if (ret < 0) {
@@ -577,7 +587,7 @@
  		recorder_destroy(output);
  	}
  }
-@@ -3059,17 +3295,23 @@
+@@ -3059,17 +3305,23 @@
  {
  	struct drm_backend *b;
  	struct weston_config_section *section;
@@ -601,7 +611,7 @@
  	/*
  	 * KMS support for hardware planes cannot properly synchronize
  	 * without nuclear page flip. Without nuclear/atomic, hw plane
-@@ -3100,23 +3342,33 @@
+@@ -3100,23 +3352,33 @@
  		goto err_compositor;
  	}
  
@@ -635,7 +645,7 @@
  		weston_log("failed to initialize kms\n");
  		goto err_udev_dev;
  	}
-@@ -3138,7 +3390,7 @@
+@@ -3138,7 +3400,7 @@
  
  	b->prev_state = WESTON_COMPOSITOR_ACTIVE;
  
@@ -644,7 +654,7 @@
  		weston_compositor_add_key_binding(compositor, key,
  						  MODIFIER_CTRL | MODIFIER_ALT,
  						  switch_vt_binding, compositor);
-@@ -3146,13 +3398,21 @@
+@@ -3146,13 +3408,21 @@
  	wl_list_init(&b->sprite_list);
  	create_sprites(b);
  
@@ -666,7 +676,7 @@
  		weston_log("failed to create output for %s\n", path);
  		goto err_udev_input;
  	}
-@@ -3164,11 +3424,11 @@
+@@ -3164,11 +3434,11 @@
  
  	path = NULL;
  
@@ -679,7 +689,7 @@
  	b->udev_monitor = udev_monitor_new_from_netlink(b->udev, "udev");
  	if (b->udev_monitor == NULL) {
  		weston_log("failed to intialize udev monitor\n");
-@@ -3187,6 +3447,7 @@
+@@ -3187,6 +3457,7 @@
  	}
  
  	udev_device_unref(drm_device);
@@ -687,7 +697,7 @@
  
  	weston_compositor_add_debug_binding(compositor, KEY_O,
  					    planes_binding, b);
-@@ -3209,22 +3470,30 @@
+@@ -3209,22 +3480,30 @@
  
  	return b;
  
@@ -718,7 +728,7 @@
  err_compositor:
  	weston_compositor_shutdown(compositor);
  err_base:
-@@ -3241,7 +3510,9 @@
+@@ -3241,7 +3520,9 @@
  
  	const struct weston_option drm_options[] = {
  		{ WESTON_OPTION_INTEGER, "connector", 0, &param.connector },

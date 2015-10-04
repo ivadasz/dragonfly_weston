@@ -9,7 +9,7 @@
  #include <getopt.h>
  
  #include <sys/types.h>
-@@ -41,14 +41,24 @@
+@@ -41,14 +41,25 @@
  #include <sys/stat.h>
  #include <sys/wait.h>
  #include <sys/socket.h>
@@ -26,6 +26,7 @@
 +#include <termios.h>
 +#include <sys/consio.h>
 +#include <sys/kbio.h>
++#include <devattr.h>
 +#else
  #include <linux/vt.h>
  #include <linux/major.h>
@@ -34,19 +35,19 @@
  
  #include <pwd.h>
  #include <grp.h>
-@@ -60,8 +70,11 @@
+@@ -60,8 +71,11 @@
  
  #include "weston-launch.h"
  
-+//#if !defined(__FreeBSD__)
++#if !defined(__FreeBSD__)
  #define DRM_MAJOR 226
-+//#endif
++#endif
  
 +#if !defined(__FreeBSD__)
  #ifndef KDSKBMUTE
  #define KDSKBMUTE	0x4B51
  #endif
-@@ -69,6 +82,7 @@
+@@ -69,6 +83,7 @@
  #ifndef EVIOCREVOKE
  #define EVIOCREVOKE _IOW('E', 0x91, int)
  #endif
@@ -54,7 +55,7 @@
  
  #define MAX_ARGV_SIZE 256
  
-@@ -100,10 +114,15 @@
+@@ -100,10 +115,16 @@
  	int sock[2];
  	int drm_fd;
  	int last_input_fd;
@@ -63,6 +64,7 @@
  	struct passwd *pw;
  
 +#if defined(__FreeBSD__)
++	struct udev *udev_ctx;
 +	struct event_base *evbase;
 +#else
  	int signalfd;
@@ -70,7 +72,7 @@
  
  	pid_t child;
  	int verbose;
-@@ -226,10 +245,10 @@
+@@ -226,10 +247,10 @@
  setup_launcher_socket(struct weston_launch *wl)
  {
  	if (socketpair(AF_LOCAL, SOCK_SEQPACKET, 0, wl->sock) < 0)
@@ -83,10 +85,22 @@
  
  	return 0;
  }
-@@ -261,9 +280,11 @@
+@@ -256,14 +277,23 @@
+ 	sigaddset(&mask, SIGCHLD);
+ 	sigaddset(&mask, SIGINT);
+ 	sigaddset(&mask, SIGTERM);
++#if !defined(__FreeBSD__)
+ 	sigaddset(&mask, SIGUSR1);
+ 	sigaddset(&mask, SIGUSR2);
++#endif
  	ret = sigprocmask(SIG_BLOCK, &mask, NULL);
  	assert(ret == 0);
  
++#if defined(__FreeBSD__)
++	signal(SIGUSR1, SIG_IGN);
++	signal(SIGUSR2, SIG_IGN);
++#endif
++
 +#if !defined(__FreeBSD__)
  	wl->signalfd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
  	if (wl->signalfd < 0)
@@ -95,16 +109,86 @@
  
  	return 0;
  }
-@@ -300,6 +321,8 @@
+@@ -289,6 +319,68 @@
+ 	return len;
+ }
+ 
++#if defined(__FreeBSD__)
++static char *
++get_maj_min_driver(struct weston_launch *wl, int major, int minor)
++{
++	struct udev_enumerate *enumerate;
++	struct udev_list_entry *current;
++	struct udev_device *dev;
++	prop_dictionary_t dict;
++	char buf1[16], buf2[16];
++	char *str = NULL;
++	int ret;
++
++	enumerate = udev_enumerate_new(wl->udev_ctx);
++	if (enumerate == NULL) {
++		warn("udev_enumerate_new");
++		return NULL;
++	}
++
++	memset(buf1, 0, sizeof(buf1));
++	memset(buf2, 0, sizeof(buf2));
++	snprintf(buf1, 15, "%d", major);
++	snprintf(buf2, 15, "%d", minor);
++	udev_enumerate_add_match_expr(enumerate, "major", buf1);
++	udev_enumerate_add_match_expr(enumerate, "minor", buf2);
++
++	ret = udev_enumerate_scan_devices(enumerate);
++	if (ret != 0) {
++		warn("udev_enumerate_scan_devices ret = %d", ret);
++		udev_enumerate_unref(enumerate);
++		return NULL;
++	}
++
++	current = udev_enumerate_get_list_entry(enumerate);
++	if (current == NULL) {
++		printf("No devices found.\n");
++	} else {
++		udev_list_entry_foreach(current, current) {
++			dev = udev_list_entry_get_device(current);
++			if (dev == NULL)
++				continue;
++			dict = udev_device_get_dictionary(dev);
++			if (dict == NULL)
++				continue;
++			if (str != NULL) {
++				free(str);
++				break;
++			}
++			str = prop_string_cstring(prop_dictionary_get(dict,
++			    "driver"));
++			if (str == NULL)
++				break;
++			printf("major: %d, minor: %d for driver %s\n",
++			    major, minor, str);
++		}
++	}
++
++	udev_enumerate_unref(enumerate);
++
++	return str;
++}
++#endif
++
+ static int
+ handle_open(struct weston_launch *wl, struct msghdr *msg, ssize_t len)
+ {
+@@ -300,6 +392,9 @@
  	struct iovec iov;
  	struct weston_launcher_open *message;
  	union cmsg_data *data;
 +	char *path = NULL;
 +	char filename[16];
++	char *devdrv;
  
  	message = msg->msg_iov->iov_base;
  	if ((size_t)len < sizeof(*message))
-@@ -308,28 +331,51 @@
+@@ -308,20 +403,55 @@
  	/* Ensure path is null-terminated */
  	((char *) message)[len-1] = '\0';
  
@@ -136,24 +220,34 @@
  		goto err0;
  	}
  
--	if (major(s.st_rdev) != INPUT_MAJOR &&
--	    major(s.st_rdev) != DRM_MAJOR) {
 +#if defined(__FreeBSD__)
-+	if (major(s.st_rdev) != DRM_MAJOR) {
++	devdrv = get_maj_min_driver(wl, major(s.st_rdev), minor(s.st_rdev));
++	if (devdrv == NULL || (strcmp("sysmouse", devdrv) != 0 &&
++			       strcmp("drm", devdrv) != 0)) {
++		free(devdrv);
++		close(fd);
++		fd = -1;
++		fprintf(stderr, "Device %s is not an input or drm device\n",
++			message->path);
++		goto err0;
++	}
++	if (devdrv != NULL && strcmp("sysmouse", devdrv) == 0) {
 +		if (fd-3 >= 16) {
++			free(devdrv);
 +			warnx("no more than 16 input devices allowed");
 +			close(fd);
 +			fd = -1;
 +			goto err0;
 +		}
 +	}
++	free(devdrv);
 +#endif
 +
 +#if !defined(__FreeBSD__)
-+	if (major(s.st_rdev) != DRM_MAJOR) {
+ 	if (major(s.st_rdev) != INPUT_MAJOR &&
+ 	    major(s.st_rdev) != DRM_MAJOR) {
  		close(fd);
- 		fd = -1;
- 		fprintf(stderr, "Device %s is not an input or drm device\n",
+@@ -330,6 +460,7 @@
  			message->path);
  		goto err0;
  	}
@@ -161,7 +255,7 @@
  
  err0:
  	memset(&nmsg, 0, sizeof nmsg);
-@@ -352,31 +398,53 @@
+@@ -352,31 +483,61 @@
  
  	if (wl->verbose)
  		fprintf(stderr, "weston-launch: opened %s: ret: %d, fd: %d\n",
@@ -180,15 +274,23 @@
  		return -1;
 +	}
  
- 	if (fd != -1 && major(s.st_rdev) == DRM_MAJOR)
- 		wl->drm_fd = fd;
 +#if defined(__FreeBSD__)
-+	if (fd != -1 &&
++	devdrv = get_maj_min_driver(wl, major(s.st_rdev), minor(s.st_rdev));
++	if (fd != -1 && devdrv != NULL && strcmp("drm", devdrv))
++		wl->drm_fd = fd;
++	if (fd != -1 && devdrv != NULL && strcmp("sysmouse", devdrv) == 0 &&
 +	    wl->last_input_fd < fd) {
++		/*
++		 * XXX with libdevattr, we can actually get the device path
++		 *     from the fd.
++		 */
 +		wl->last_input_fd = fd;
 +		wl->input_path[fd-3] = path;
 +	}
++	free(devdrv);
 +#else
+ 	if (fd != -1 && major(s.st_rdev) == DRM_MAJOR)
+ 		wl->drm_fd = fd;
  	if (fd != -1 && major(s.st_rdev) == INPUT_MAJOR &&
  	    wl->last_input_fd < fd)
  		wl->last_input_fd = fd;
@@ -217,7 +319,7 @@
  	ssize_t len;
  	struct weston_launcher_message *message;
  
-@@ -392,17 +460,32 @@
+@@ -392,17 +553,32 @@
  		len = recvmsg(wl->sock[0], &msg, 0);
  	} while (len < 0 && errno == EINTR);
  
@@ -251,7 +353,7 @@
  }
  
  static void
-@@ -411,7 +494,9 @@
+@@ -411,7 +587,9 @@
  	struct vt_mode mode = { 0 };
  	int err;
  
@@ -261,7 +363,7 @@
  	close(wl->sock[0]);
  
  	if (wl->new_user) {
-@@ -422,8 +507,12 @@
+@@ -422,8 +600,12 @@
  		pam_end(wl->ph, err);
  	}
  
@@ -274,7 +376,7 @@
  		fprintf(stderr, "failed to restore keyboard mode: %m\n");
  
  	if (ioctl(wl->tty, KDSETMODE, KD_TEXT))
-@@ -447,28 +536,53 @@
+@@ -447,28 +629,56 @@
  	struct stat s;
  	int fd;
  
@@ -283,19 +385,20 @@
  	for (fd = 3; fd <= wl->last_input_fd; fd++) {
 +#if defined(__FreeBSD__)
 +		if (fstat(fd, &s) == 0) {
-+			if (wl->input_path[fd-3] != NULL) {
++			if (fd-3 < 16 && wl->input_path[fd-3] != NULL) {
 +				printf("revoking access to device %s\n", wl->input_path[fd-3]);
 +				revoke(wl->input_path[fd-3]);
 +				free(wl->input_path[fd-3]);
 +				wl->input_path[fd-3] = NULL;
++				close(fd);
 +			}
 +#else
  		if (fstat(fd, &s) == 0 && major(s.st_rdev) == INPUT_MAJOR) {
  			/* EVIOCREVOKE may fail if the kernel doesn't
  			 * support it, but all we can do is ignore it. */
  			ioctl(fd, EVIOCREVOKE, 0);
-+#endif
  			close(fd);
++#endif
  		}
  	}
  }
@@ -322,6 +425,8 @@
 +#endif
  
 +#if defined(__FreeBSD__)
++	printf("%s: signal=%d\n", __func__, fd);
++
 +	switch (fd) {
 +#else
  	switch (sig.ssi_signo) {
@@ -329,7 +434,7 @@
  	case SIGCHLD:
  		pid = waitpid(-1, &status, 0);
  		if (pid == wl->child) {
-@@ -491,33 +605,51 @@
+@@ -491,25 +701,58 @@
  	case SIGTERM:
  	case SIGINT:
  		if (wl->child)
@@ -344,11 +449,18 @@
  		send_reply(wl, WESTON_LAUNCHER_DEACTIVATE);
  		close_input_fds(wl);
  		drmDropMaster(wl->drm_fd);
++#if defined(__FreeBSD__)
++		ioctl(wl->tty, VT_RELDISP, VT_TRUE);
++#else
  		ioctl(wl->tty, VT_RELDISP, 1);
++#endif
  		break;
  	case SIGUSR2:
 +		warnx("%s: entering vt", __func__);
  		ioctl(wl->tty, VT_RELDISP, VT_ACKACQ);
++#if defined(__FreeBSD__)
++		ioctl(wl->tty, VT_WAITACTIVE, wl->ttynr);
++#endif
  		drmSetMaster(wl->drm_fd);
  		send_reply(wl, WESTON_LAUNCHER_ACTIVATE);
  		break;
@@ -363,16 +475,25 @@
 +#if defined(__FreeBSD__)
 +	return;
 +#else
- 	return 0;
++	return 0;
 +#endif
++}
++
++#if defined(__FreeBSD__)
++static int
++setup_udev(struct weston_launch *wl)
++{
++	wl->udev_ctx = udev_new();
++	if (wl->udev_ctx == NULL)
++		errx(1, "udev_new failed");
++
+ 	return 0;
  }
++#endif
  
  static int
  setup_tty(struct weston_launch *wl, const char *tty)
- {
-+#if !defined(__FreeBSD__)
- 	struct stat buf;
-+#endif
+@@ -518,6 +761,8 @@
  	struct vt_mode mode = { 0 };
  	char *t;
  
@@ -381,7 +502,7 @@
  	if (!wl->new_user) {
  		wl->tty = STDIN_FILENO;
  	} else if (tty) {
-@@ -527,52 +659,89 @@
+@@ -527,52 +772,106 @@
  		else
  			wl->tty = open(tty, O_RDWR | O_NOCTTY);
  	} else {
@@ -414,25 +535,42 @@
 -		error(1, errno, "failed to open tty");
 +		err(1, "failed to open tty");
  
-+#if !defined(__FreeBSD__)
++#if defined(__FreeBSD__)
++	if (fstat(wl->tty, &buf) == 0) {
++		char *ttydrv = get_maj_min_driver(wl, major(buf.st_rdev),
++		    minor(buf.st_rdev));
++		if (ttydrv == NULL || strcmp("sc", ttydrv) != 0)
++			errx(1, "weston-launch must be run from a virtual "
++			    "terminal");
++		free(ttydrv);
++	}
++#else
  	if (fstat(wl->tty, &buf) == -1 ||
  	    major(buf.st_rdev) != TTY_MAJOR || minor(buf.st_rdev) == 0)
 -		error(1, 0, "weston-launch must be run from a virtual terminal");
 +		errx(1, "weston-launch must be run from a virtual terminal");
++#endif
  
  	if (tty) {
  		if (fstat(wl->tty, &buf) < 0)
 -			error(1, errno, "stat %s failed", tty);
 +			err(1, "stat: %s", tty);
  
++#if defined(__FreeBSD__)
++		char *ttydrv = get_maj_min_driver(wl, major(buf.st_rdev),
++		    minor(buf.st_rdev));
++		if (ttydrv == NULL || strcmp("sc", ttydrv) != 0)
++			errx(1, "invalid tty device: %s", tty);
++		free(ttydrv);
++#else
  		if (major(buf.st_rdev) != TTY_MAJOR)
 -			error(1, 0, "invalid tty device: %s", tty);
 +			errx(1, "invalid tty device: %s", tty);
  
++#endif
  		wl->ttynr = minor(buf.st_rdev);
  	}
-+#endif
-+
+ 
 +#if defined(__FreeBSD__)
 +	printf("%s: wl->ttynr = %d\n", __func__, wl->ttynr);
 +	if (wl->ttynr > 0) {
@@ -442,7 +580,7 @@
 +			err(1, "VT_ACTIVATE");
 +	}
 +#endif
- 
++
  	if (ioctl(wl->tty, KDGKBMODE, &wl->kb_mode))
 -		error(1, errno, "failed to get current keyboard mode: %m\n");
 +		err(1, "failed to get current keyboard mode");
@@ -481,7 +619,7 @@
  
  	return 0;
  }
-@@ -586,28 +755,37 @@
+@@ -586,28 +885,37 @@
  
  	if (wl->tty != STDIN_FILENO) {
  		if (setsid() < 0)
@@ -522,7 +660,7 @@
  }
  
  static void
-@@ -618,7 +796,7 @@
+@@ -618,7 +926,7 @@
  	    initgroups(wl->pw->pw_name, wl->pw->pw_gid) < 0 ||
  #endif
  	    setuid(wl->pw->pw_uid) < 0)
@@ -531,14 +669,21 @@
  }
  
  static void
-@@ -646,8 +824,21 @@
+@@ -646,8 +954,28 @@
  	sigaddset(&mask, SIGTERM);
  	sigaddset(&mask, SIGCHLD);
  	sigaddset(&mask, SIGINT);
++//#if !defined(__FreeBSD__)
 +	sigaddset(&mask, SIGUSR1);
 +	sigaddset(&mask, SIGUSR2);
++//#endif
  	sigprocmask(SIG_UNBLOCK, &mask, NULL);
  
++#if defined(__FreeBSD__)
++	signal(SIGUSR1, SIG_DFL);
++	signal(SIGUSR2, SIG_DFL);
++#endif
++
 +#if defined(__FreeBSD__)
 +	child_argv[0] = "-/bin/sh";
 +	child_argv[1] = "-c";
@@ -553,7 +698,7 @@
  	child_argv[0] = "/bin/sh";
  	child_argv[1] = "-l";
  	child_argv[2] = "-c";
-@@ -658,7 +849,8 @@
+@@ -658,7 +986,8 @@
  	child_argv[5 + i] = NULL;
  
  	execv(child_argv[0], child_argv);
@@ -563,7 +708,7 @@
  }
  
  static void
-@@ -692,7 +884,7 @@
+@@ -692,7 +1021,7 @@
  		case 'u':
  			wl.new_user = optarg;
  			if (getuid() != 0)
@@ -572,7 +717,7 @@
  			break;
  		case 't':
  			tty = optarg;
-@@ -707,17 +899,17 @@
+@@ -707,17 +1036,17 @@
  	}
  
  	if ((argc - optind) > (MAX_ARGV_SIZE - 6))
@@ -593,7 +738,19 @@
  #ifdef HAVE_SYSTEMD_LOGIN
  		      " - run from an active and local (systemd) session.\n"
  #else
-@@ -739,7 +931,7 @@
+@@ -725,6 +1054,11 @@
+ #endif
+ 		      " - or add yourself to the 'weston-launch' group.");
+ 
++#if defined(__FreeBSD__)
++	if (setup_udev(&wl) < 0)
++		exit(EXIT_FAILURE);
++#endif
++
+ 	if (setup_tty(&wl, tty) < 0)
+ 		exit(EXIT_FAILURE);
+ 
+@@ -739,15 +1073,59 @@
  
  	wl.child = fork();
  	if (wl.child == -1)
@@ -602,10 +759,13 @@
  
  	if (wl.child == 0)
  		launch_compositor(&wl, argc - optind, argv + optind);
-@@ -748,6 +940,45 @@
+ 
+ 	close(wl.sock[1]);
++#if !defined(__FreeBSD__)
  	if (wl.tty != STDIN_FILENO)
  		close(wl.tty);
- 
++#endif
++
 +#if defined(__FreeBSD__)
 +	wl.evbase = event_base_new();
 +	struct event *sockev = event_new(wl.evbase, wl.sock[0],
@@ -644,11 +804,14 @@
 +	event_free(usr2ev);
 +	event_free(sockev);
 +	event_base_free(wl.evbase);
+ 
++	if (wl.tty != STDIN_FILENO)
++		close(wl.tty);
 +#else
  	while (1) {
  		struct pollfd fds[2];
  		int n;
-@@ -759,12 +990,13 @@
+@@ -759,12 +1137,13 @@
  
  		n = poll(fds, 2, -1);
  		if (n < 0)

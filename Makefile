@@ -26,7 +26,9 @@ LIB_DEPENDS+=	libgbm.so:${PORTSDIR}/graphics/gbm			\
 		libdrm.so:${PORTSDIR}/graphics/libdrm
 
 LIBS+=		-lexecinfo
+# XXX Rather add these to the Makefile.in for the relevant binaries only
 LIBS+=		-lkbdev
+LIBS+=		-ldevattr -lprop
 
 GNU_CONFIGURE=	YES
 
