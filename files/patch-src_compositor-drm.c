@@ -351,7 +351,7 @@
  static void
  update_outputs(struct drm_backend *b, struct udev_device *drm_device)
  {
-@@ -2693,6 +2769,146 @@
+@@ -2693,6 +2769,151 @@
  
  	return 1;
  }
@@ -445,7 +445,7 @@
 +}
 +
 +static int
-+drm_input_create(struct drm_backend *b)
++drm_input_sysmouse_open(struct drm_backend *b)
 +{
 +	if (b->sysmouse_fd == -1) {
 +		b->sysmouse_fd = weston_launcher_open(b->compositor->launcher,
@@ -454,22 +454,27 @@
 +			return -1;
 +	}
 +
++	int lvl = 1;
++	fcntl(b->sysmouse_fd, F_SETFL, O_NONBLOCK);
++	ioctl(b->sysmouse_fd, MOUSE_SETLEVEL, &lvl);
++
++	return 0;
++}
++
++static int
++drm_input_create(struct drm_backend *b)
++{
++	if (drm_input_sysmouse_open(b) != 0)
++		return -1;
++
 +	if (b->kbd_fd == -1) {
 +		b->kbd_fd = weston_launcher_ttyfd(b->compositor->launcher);
 +		printf("tty fd from weston-launcher: %d\n", b->kbd_fd);
-+		if (b->kbd_fd < 0)
-+			b->kbd_fd = weston_launcher_open(
-+			    b->compositor->launcher, "tty",
-+			    O_RDONLY | O_CLOEXEC);
 +		if (b->kbd_fd < 0) {
 +			close(b->sysmouse_fd);
 +			return -1;
 +		}
 +	}
-+
-+	int lvl = 1;
-+	fcntl(b->sysmouse_fd, F_SETFL, O_NONBLOCK);
-+	ioctl(b->sysmouse_fd, MOUSE_SETLEVEL, &lvl);
 +
 +	fcntl(b->kbd_fd, F_SETFL, O_NONBLOCK);
 +	b->kbdst = kbdev_new_state(b->kbd_fd);
@@ -498,7 +503,7 @@
  
  static void
  drm_restore(struct weston_compositor *ec)
-@@ -2705,9 +2921,15 @@
+@@ -2705,9 +2926,15 @@
  {
  	struct drm_backend *b = (struct drm_backend *) ec->backend;
  
@@ -514,7 +519,7 @@
  	wl_event_source_remove(b->drm_source);
  
  	destroy_sprites(b);
-@@ -2749,9 +2971,10 @@
+@@ -2749,9 +2976,10 @@
  				     &drm_mode->mode_info);
  		if (ret < 0) {
  			weston_log(
@@ -527,12 +532,22 @@
  		}
  	}
  }
-@@ -2769,10 +2992,29 @@
+@@ -2763,16 +2991,49 @@
+ 	struct drm_backend *b = (struct drm_backend *)compositor->backend;
+ 	struct drm_sprite *sprite;
+ 	struct drm_output *output;
++	struct wl_event_loop *loop;
++
++	loop = wl_display_get_event_loop(compositor->wl_display);
+ 
+ 	if (compositor->session_active) {
+ 		weston_log("activating session\n");
  		compositor->state = b->prev_state;
  		drm_backend_set_modes(b);
  		weston_compositor_damage_all(compositor);
 +#if defined(__FreeBSD__)
 +		/* XXX enable mouse input source */
++		/* Re-enable keyboard input */
 +		b->kbd_source = wl_event_loop_add_fd(
 +		    wl_display_get_event_loop(b->compositor->wl_display),
 +		    b->kbd_fd, WL_EVENT_READABLE, drm_kbd_handler, b);
@@ -541,6 +556,15 @@
 +		wl_array_init(&keys);
 +		notify_keyboard_focus_in(&b->syscons_seat, &keys, STATE_UPDATE_AUTOMATIC);
 +		wl_array_release(&keys);
++
++		/* Re-enable mouse input */
++		if (drm_input_sysmouse_open(b) == 0) {
++			b->sysmouse_source = wl_event_loop_add_fd(loop,
++			    b->sysmouse_fd, WL_EVENT_READABLE,
++			    drm_sysmouse_handler, b);
++		} else {
++			weston_log("Re-initializing sysmouse input failed\n");
++		}
 +#else
  		udev_input_enable(&b->input);
 +#endif
@@ -551,13 +575,14 @@
 +		wl_event_source_remove(b->kbd_source);
 +		notify_keyboard_focus_out(&b->syscons_seat);
 +		close(b->sysmouse_fd);
++		b->sysmouse_fd = -1;
 +#else
  		udev_input_disable(&b->input);
 +#endif
  
  		b->prev_state = compositor->state;
  		weston_compositor_offscreen(compositor);
-@@ -2807,9 +3049,12 @@
+@@ -2807,9 +3068,12 @@
  {
  	struct weston_compositor *compositor = data;
  
@@ -570,7 +595,7 @@
  /*
   * Find primary GPU
   * Some systems may have multiple DRM devices attached to a single seat. This
-@@ -2865,6 +3110,7 @@
+@@ -2865,6 +3129,7 @@
  	udev_enumerate_unref(e);
  	return drm_device;
  }
@@ -578,7 +603,7 @@
  
  static void
  planes_binding(struct weston_keyboard *keyboard, uint32_t time, uint32_t key,
-@@ -2925,7 +3171,7 @@
+@@ -2925,7 +3190,7 @@
  	ret = vaapi_recorder_frame(output->recorder, fd,
  				   output->current->stride);
  	if (ret < 0) {
@@ -587,7 +612,7 @@
  		recorder_destroy(output);
  	}
  }
-@@ -3059,17 +3305,23 @@
+@@ -3059,17 +3324,23 @@
  {
  	struct drm_backend *b;
  	struct weston_config_section *section;
@@ -611,7 +636,7 @@
  	/*
  	 * KMS support for hardware planes cannot properly synchronize
  	 * without nuclear page flip. Without nuclear/atomic, hw plane
-@@ -3100,23 +3352,33 @@
+@@ -3100,23 +3371,33 @@
  		goto err_compositor;
  	}
  
@@ -645,7 +670,7 @@
  		weston_log("failed to initialize kms\n");
  		goto err_udev_dev;
  	}
-@@ -3138,7 +3400,7 @@
+@@ -3138,7 +3419,7 @@
  
  	b->prev_state = WESTON_COMPOSITOR_ACTIVE;
  
@@ -654,7 +679,7 @@
  		weston_compositor_add_key_binding(compositor, key,
  						  MODIFIER_CTRL | MODIFIER_ALT,
  						  switch_vt_binding, compositor);
-@@ -3146,13 +3408,21 @@
+@@ -3146,13 +3427,21 @@
  	wl_list_init(&b->sprite_list);
  	create_sprites(b);
  
@@ -676,7 +701,7 @@
  		weston_log("failed to create output for %s\n", path);
  		goto err_udev_input;
  	}
-@@ -3164,11 +3434,11 @@
+@@ -3164,11 +3453,11 @@
  
  	path = NULL;
  
@@ -689,7 +714,7 @@
  	b->udev_monitor = udev_monitor_new_from_netlink(b->udev, "udev");
  	if (b->udev_monitor == NULL) {
  		weston_log("failed to intialize udev monitor\n");
-@@ -3187,6 +3457,7 @@
+@@ -3187,6 +3476,7 @@
  	}
  
  	udev_device_unref(drm_device);
@@ -697,7 +722,7 @@
  
  	weston_compositor_add_debug_binding(compositor, KEY_O,
  					    planes_binding, b);
-@@ -3209,22 +3480,30 @@
+@@ -3209,22 +3499,30 @@
  
  	return b;
  
@@ -728,7 +753,7 @@
  err_compositor:
  	weston_compositor_shutdown(compositor);
  err_base:
-@@ -3241,7 +3520,9 @@
+@@ -3241,7 +3539,9 @@
  
  	const struct weston_option drm_options[] = {
  		{ WESTON_OPTION_INTEGER, "connector", 0, &param.connector },
