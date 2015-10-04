@@ -640,7 +640,7 @@
  	b->prev_state = WESTON_COMPOSITOR_ACTIVE;
  
 -	for (key = KEY_F1; key < KEY_F9; key++)
-+	for (key = KEY_F1; key <= KEY_F12; key++)
++	for (key = KEY_F1; key <= KEY_F10; key++)
  		weston_compositor_add_key_binding(compositor, key,
  						  MODIFIER_CTRL | MODIFIER_ALT,
  						  switch_vt_binding, compositor);

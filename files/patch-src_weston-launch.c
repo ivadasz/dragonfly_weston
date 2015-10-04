@@ -274,7 +274,7 @@
  		fprintf(stderr, "failed to restore keyboard mode: %m\n");
  
  	if (ioctl(wl->tty, KDSETMODE, KD_TEXT))
-@@ -447,28 +536,55 @@
+@@ -447,28 +536,53 @@
  	struct stat s;
  	int fd;
  
@@ -320,8 +320,6 @@
  		return -1;
  	}
 +#endif
-+
-+	warnx("%s: running", __func__);
  
 +#if defined(__FreeBSD__)
 +	switch (fd) {
@@ -331,7 +329,7 @@
  	case SIGCHLD:
  		pid = waitpid(-1, &status, 0);
  		if (pid == wl->child) {
-@@ -491,33 +607,51 @@
+@@ -491,33 +605,51 @@
  	case SIGTERM:
  	case SIGINT:
  		if (wl->child)
@@ -383,7 +381,7 @@
  	if (!wl->new_user) {
  		wl->tty = STDIN_FILENO;
  	} else if (tty) {
-@@ -527,52 +661,89 @@
+@@ -527,52 +659,89 @@
  		else
  			wl->tty = open(tty, O_RDWR | O_NOCTTY);
  	} else {
@@ -483,7 +481,7 @@
  
  	return 0;
  }
-@@ -586,28 +757,37 @@
+@@ -586,28 +755,37 @@
  
  	if (wl->tty != STDIN_FILENO) {
  		if (setsid() < 0)
@@ -524,7 +522,7 @@
  }
  
  static void
-@@ -618,7 +798,7 @@
+@@ -618,7 +796,7 @@
  	    initgroups(wl->pw->pw_name, wl->pw->pw_gid) < 0 ||
  #endif
  	    setuid(wl->pw->pw_uid) < 0)
@@ -533,8 +531,12 @@
  }
  
  static void
-@@ -648,6 +828,17 @@
+@@ -646,8 +824,21 @@
+ 	sigaddset(&mask, SIGTERM);
+ 	sigaddset(&mask, SIGCHLD);
  	sigaddset(&mask, SIGINT);
++	sigaddset(&mask, SIGUSR1);
++	sigaddset(&mask, SIGUSR2);
  	sigprocmask(SIG_UNBLOCK, &mask, NULL);
  
 +#if defined(__FreeBSD__)
