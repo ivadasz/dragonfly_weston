@@ -19,16 +19,12 @@ LIB_DEPENDS=	libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
 		libwayland-client.so:${PORTSDIR}/graphics/wayland	\
 		libwayland-cursor.so:${PORTSDIR}/graphics/wayland	\
 		libevent.so:${PORTSDIR}/devel/libevent2			\
+		libgbm.so:${PORTSDIR}/graphics/gbm			\
+		libdrm.so:${PORTSDIR}/graphics/libdrm			\
+		libkbdev.so:${PORTSDIR}/devel/libkbdev			\
 		libffi.so:${PORTSDIR}/devel/libffi
 
-# XXX drm backend not available yet
-LIB_DEPENDS+=	libgbm.so:${PORTSDIR}/graphics/gbm			\
-		libdrm.so:${PORTSDIR}/graphics/libdrm
-
 LIBS+=		-lexecinfo
-# XXX Rather add these to the Makefile.in for the relevant binaries only
-LIBS+=		-lkbdev
-LIBS+=		-ldevattr -lprop
 
 GNU_CONFIGURE=	YES
 

@@ -32,12 +32,12 @@
  
 -@BUILD_WESTON_LAUNCH_TRUE@weston_launch_LDADD = $(PAM_LIBS) $(SYSTEMD_LOGIN_LIBS) $(LIBDRM_LIBS)
 -pkgconfigdir = $(libdir)/pkgconfig
-+@BUILD_WESTON_LAUNCH_TRUE@weston_launch_LDADD = $(PAM_LIBS) $(EVENT_LIBS) $(SYSTEMD_LOGIN_LIBS) $(LIBDRM_LIBS)
++@BUILD_WESTON_LAUNCH_TRUE@weston_launch_LDADD = $(PAM_LIBS) $(EVENT_LIBS) $(SYSTEMD_LOGIN_LIBS) $(LIBDRM_LIBS) -ldevattr -lprop
 +pkgconfigdir = $(prefix)/libdata/pkgconfig
  pkgconfig_DATA = src/weston.pc
  wayland_sessiondir = $(datadir)/wayland-sessions
  dist_wayland_session_DATA = src/weston.desktop
-@@ -2085,13 +2080,14 @@
+@@ -2085,18 +2080,20 @@
  @ENABLE_X11_COMPOSITOR_TRUE@	src/compositor-x11.c			\
  @ENABLE_X11_COMPOSITOR_TRUE@	shared/helpers.h
  
@@ -59,7 +59,13 @@
  
  @ENABLE_DRM_COMPOSITOR_TRUE@drm_backend_la_LDFLAGS = -module -avoid-version
  @ENABLE_DRM_COMPOSITOR_TRUE@drm_backend_la_LIBADD =  \
-@@ -2314,6 +2310,7 @@
+ @ENABLE_DRM_COMPOSITOR_TRUE@	$(COMPOSITOR_LIBS) \
+ @ENABLE_DRM_COMPOSITOR_TRUE@	$(DRM_COMPOSITOR_LIBS) \
++@ENABLE_DRM_COMPOSITOR_TRUE@	-lkbdev \
+ @ENABLE_DRM_COMPOSITOR_TRUE@	$(INPUT_BACKEND_LIBS) libshared.la \
+ @ENABLE_DRM_COMPOSITOR_TRUE@	-lrt libsession-helper.la \
+ @ENABLE_DRM_COMPOSITOR_TRUE@	$(am__append_9)
+@@ -2314,6 +2311,7 @@
  
  @BUILD_CLIENTS_TRUE@libtoytoolkit_la_LIBADD = \
  @BUILD_CLIENTS_TRUE@	$(CLIENT_LIBS)				\
