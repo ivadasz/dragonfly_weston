@@ -72,7 +72,70 @@
  
  	pid_t child;
  	int verbose;
-@@ -226,10 +247,10 @@
+@@ -113,7 +134,11 @@
+ union cmsg_data { unsigned char b[4]; int fd; };
+ 
+ static gid_t *
++#if defined(__FreeBSD__)
++read_groups(int *cnt)
++#else
+ read_groups(void)
++#endif
+ {
+ 	int n;
+ 	gid_t *groups;
+@@ -121,7 +146,8 @@
+ 	n = getgroups(0, NULL);
+ 
+ 	if (n < 0) {
+-		fprintf(stderr, "Unable to retrieve groups: %m\n");
++		fprintf(stderr, "Unable to retrieve groups: %s\n",
++		    strerror(errno));
+ 		return NULL;
+ 	}
+ 
+@@ -130,10 +156,12 @@
+ 		return NULL;
+ 
+ 	if (getgroups(n, groups) < 0) {
+-		fprintf(stderr, "Unable to retrieve groups: %m\n");
++		fprintf(stderr, "Unable to retrieve groups: %s\n",
++		    strerror(errno));
+ 		free(groups);
+ 		return NULL;
+ 	}
++	*cnt = n;
+ 	return groups;
+ }
+ 
+@@ -147,15 +175,26 @@
+ 	char *session, *seat;
+ 	int err;
+ #endif
++#if defined(__FreeBSD__)
++	int cnt;
++#endif
+ 
+ 	if (getuid() == 0)
+ 		return true;
+ 
+ 	gr = getgrnam("weston-launch");
+ 	if (gr) {
++#if defined(__FreeBSD__)
++		groups = read_groups(&cnt);
++#else
+ 		groups = read_groups();
++#endif
+ 		if (groups) {
++#if defined(__FreeBSD__)
++			for (i = 0; i < cnt; ++i) {
++#else
+ 			for (i = 0; groups[i]; ++i) {
++#endif
+ 				if (groups[i] == gr->gr_gid) {
+ 					free(groups);
+ 					return true;
+@@ -226,10 +265,10 @@
  setup_launcher_socket(struct weston_launch *wl)
  {
  	if (socketpair(AF_LOCAL, SOCK_SEQPACKET, 0, wl->sock) < 0)
@@ -85,7 +148,7 @@
  
  	return 0;
  }
-@@ -256,14 +277,23 @@
+@@ -256,14 +295,23 @@
  	sigaddset(&mask, SIGCHLD);
  	sigaddset(&mask, SIGINT);
  	sigaddset(&mask, SIGTERM);
@@ -109,7 +172,7 @@
  
  	return 0;
  }
-@@ -289,6 +319,68 @@
+@@ -289,6 +337,68 @@
  	return len;
  }
  
@@ -178,7 +241,7 @@
  static int
  handle_open(struct weston_launch *wl, struct msghdr *msg, ssize_t len)
  {
-@@ -300,6 +392,9 @@
+@@ -300,6 +410,9 @@
  	struct iovec iov;
  	struct weston_launcher_open *message;
  	union cmsg_data *data;
@@ -188,7 +251,7 @@
  
  	message = msg->msg_iov->iov_base;
  	if ((size_t)len < sizeof(*message))
-@@ -308,20 +403,46 @@
+@@ -308,20 +421,46 @@
  	/* Ensure path is null-terminated */
  	((char *) message)[len-1] = '\0';
  
@@ -196,9 +259,10 @@
 +	path = strdup(message->path);
 +	fd = open(path, message->flags);
  	if (fd < 0) {
- 		fprintf(stderr, "Error opening device %s: %m\n",
+-		fprintf(stderr, "Error opening device %s: %m\n",
 -			message->path);
-+			path);
++		fprintf(stderr, "Error opening device %s: %s\n",
++			path, strerror(errno));
  		goto err0;
  	}
 +	printf("opened device %s to fd %d\n", path, fd);
@@ -238,7 +302,7 @@
  	if (major(s.st_rdev) != INPUT_MAJOR &&
  	    major(s.st_rdev) != DRM_MAJOR) {
  		close(fd);
-@@ -330,6 +451,7 @@
+@@ -330,6 +469,7 @@
  			message->path);
  		goto err0;
  	}
@@ -246,7 +310,7 @@
  
  err0:
  	memset(&nmsg, 0, sizeof nmsg);
-@@ -352,31 +474,63 @@
+@@ -352,31 +492,63 @@
  
  	if (wl->verbose)
  		fprintf(stderr, "weston-launch: opened %s: ret: %d, fd: %d\n",
@@ -312,7 +376,7 @@
  	ssize_t len;
  	struct weston_launcher_message *message;
  
-@@ -392,17 +546,32 @@
+@@ -392,17 +564,32 @@
  		len = recvmsg(wl->sock[0], &msg, 0);
  	} while (len < 0 && errno == EINTR);
  
@@ -346,7 +410,7 @@
  }
  
  static void
-@@ -411,7 +580,9 @@
+@@ -411,7 +598,9 @@
  	struct vt_mode mode = { 0 };
  	int err;
  
@@ -356,7 +420,7 @@
  	close(wl->sock[0]);
  
  	if (wl->new_user) {
-@@ -422,8 +593,12 @@
+@@ -422,12 +611,18 @@
  		pam_end(wl->ph, err);
  	}
  
@@ -365,11 +429,19 @@
 +#else
  	if (ioctl(wl->tty, KDSKBMUTE, 0) &&
  	    ioctl(wl->tty, KDSKBMODE, wl->kb_mode))
+-		fprintf(stderr, "failed to restore keyboard mode: %m\n");
 +#endif
- 		fprintf(stderr, "failed to restore keyboard mode: %m\n");
++		fprintf(stderr, "failed to restore keyboard mode: %s\n",
++		    strerror(errno));
  
  	if (ioctl(wl->tty, KDSETMODE, KD_TEXT))
-@@ -447,28 +622,56 @@
+-		fprintf(stderr, "failed to set KD_TEXT mode on tty: %m\n");
++		fprintf(stderr, "failed to set KD_TEXT mode on tty: %s\n",
++		    strerror(errno));
+ 
+ 	/* We have to drop master before we switch the VT back in
+ 	 * VT_AUTO, so we don't risk switching to a VT with another
+@@ -447,28 +642,56 @@
  	struct stat s;
  	int fd;
  
@@ -416,10 +488,10 @@
  		return -1;
  	}
 +#endif
-+
+ 
 +#if defined(__FreeBSD__)
 +	printf("%s: signal=%d\n", __func__, fd);
- 
++
 +	switch (fd) {
 +#else
  	switch (sig.ssi_signo) {
@@ -427,7 +499,7 @@
  	case SIGCHLD:
  		pid = waitpid(-1, &status, 0);
  		if (pid == wl->child) {
-@@ -491,25 +694,58 @@
+@@ -491,26 +714,59 @@
  	case SIGTERM:
  	case SIGINT:
  		if (wl->child)
@@ -468,10 +540,10 @@
 +#if defined(__FreeBSD__)
 +	return;
 +#else
-+	return 0;
+ 	return 0;
 +#endif
-+}
-+
+ }
+ 
 +#if defined(__FreeBSD__)
 +static int
 +setup_udev(struct weston_launch *wl)
@@ -480,13 +552,14 @@
 +	if (wl->udev_ctx == NULL)
 +		errx(1, "udev_new failed");
 +
- 	return 0;
- }
++	return 0;
++}
 +#endif
- 
++
  static int
  setup_tty(struct weston_launch *wl, const char *tty)
-@@ -518,6 +754,8 @@
+ {
+@@ -518,6 +774,8 @@
  	struct vt_mode mode = { 0 };
  	char *t;
  
@@ -495,7 +568,7 @@
  	if (!wl->new_user) {
  		wl->tty = STDIN_FILENO;
  	} else if (tty) {
-@@ -527,52 +765,106 @@
+@@ -527,52 +785,106 @@
  		else
  			wl->tty = open(tty, O_RDWR | O_NOCTTY);
  	} else {
@@ -612,7 +685,7 @@
  
  	return 0;
  }
-@@ -586,28 +878,37 @@
+@@ -586,28 +898,37 @@
  
  	if (wl->tty != STDIN_FILENO) {
  		if (setsid() < 0)
@@ -653,7 +726,7 @@
  }
  
  static void
-@@ -618,7 +919,7 @@
+@@ -618,7 +939,7 @@
  	    initgroups(wl->pw->pw_name, wl->pw->pw_gid) < 0 ||
  #endif
  	    setuid(wl->pw->pw_uid) < 0)
@@ -662,7 +735,7 @@
  }
  
  static void
-@@ -646,8 +947,28 @@
+@@ -646,8 +967,28 @@
  	sigaddset(&mask, SIGTERM);
  	sigaddset(&mask, SIGCHLD);
  	sigaddset(&mask, SIGINT);
@@ -691,7 +764,7 @@
  	child_argv[0] = "/bin/sh";
  	child_argv[1] = "-l";
  	child_argv[2] = "-c";
-@@ -658,7 +979,8 @@
+@@ -658,7 +999,8 @@
  	child_argv[5 + i] = NULL;
  
  	execv(child_argv[0], child_argv);
@@ -701,7 +774,7 @@
  }
  
  static void
-@@ -692,7 +1014,7 @@
+@@ -692,7 +1034,7 @@
  		case 'u':
  			wl.new_user = optarg;
  			if (getuid() != 0)
@@ -710,7 +783,7 @@
  			break;
  		case 't':
  			tty = optarg;
-@@ -707,17 +1029,17 @@
+@@ -707,17 +1049,17 @@
  	}
  
  	if ((argc - optind) > (MAX_ARGV_SIZE - 6))
@@ -731,7 +804,7 @@
  #ifdef HAVE_SYSTEMD_LOGIN
  		      " - run from an active and local (systemd) session.\n"
  #else
-@@ -725,6 +1047,11 @@
+@@ -725,6 +1067,11 @@
  #endif
  		      " - or add yourself to the 'weston-launch' group.");
  
@@ -743,7 +816,7 @@
  	if (setup_tty(&wl, tty) < 0)
  		exit(EXIT_FAILURE);
  
-@@ -739,15 +1066,59 @@
+@@ -739,15 +1086,59 @@
  
  	wl.child = fork();
  	if (wl.child == -1)
@@ -804,7 +877,7 @@
  	while (1) {
  		struct pollfd fds[2];
  		int n;
-@@ -759,12 +1130,13 @@
+@@ -759,12 +1150,13 @@
  
  		n = poll(fds, 2, -1);
  		if (n < 0)
