@@ -241,17 +241,16 @@
  static int
  handle_open(struct weston_launch *wl, struct msghdr *msg, ssize_t len)
  {
-@@ -300,6 +410,9 @@
+@@ -300,6 +410,8 @@
  	struct iovec iov;
  	struct weston_launcher_open *message;
  	union cmsg_data *data;
 +	char *path = NULL;
-+	char filename[16];
 +	char *devdrv;
  
  	message = msg->msg_iov->iov_base;
  	if ((size_t)len < sizeof(*message))
-@@ -308,20 +421,46 @@
+@@ -308,20 +420,46 @@
  	/* Ensure path is null-terminated */
  	((char *) message)[len-1] = '\0';
  
@@ -302,7 +301,7 @@
  	if (major(s.st_rdev) != INPUT_MAJOR &&
  	    major(s.st_rdev) != DRM_MAJOR) {
  		close(fd);
-@@ -330,6 +469,7 @@
+@@ -330,6 +468,7 @@
  			message->path);
  		goto err0;
  	}
@@ -310,7 +309,7 @@
  
  err0:
  	memset(&nmsg, 0, sizeof nmsg);
-@@ -352,31 +492,63 @@
+@@ -352,31 +491,63 @@
  
  	if (wl->verbose)
  		fprintf(stderr, "weston-launch: opened %s: ret: %d, fd: %d\n",
@@ -376,7 +375,7 @@
  	ssize_t len;
  	struct weston_launcher_message *message;
  
-@@ -392,17 +564,32 @@
+@@ -392,17 +563,32 @@
  		len = recvmsg(wl->sock[0], &msg, 0);
  	} while (len < 0 && errno == EINTR);
  
@@ -410,7 +409,7 @@
  }
  
  static void
-@@ -411,7 +598,9 @@
+@@ -411,7 +597,9 @@
  	struct vt_mode mode = { 0 };
  	int err;
  
@@ -420,7 +419,7 @@
  	close(wl->sock[0]);
  
  	if (wl->new_user) {
-@@ -422,12 +611,18 @@
+@@ -422,12 +610,18 @@
  		pam_end(wl->ph, err);
  	}
  
@@ -441,7 +440,7 @@
  
  	/* We have to drop master before we switch the VT back in
  	 * VT_AUTO, so we don't risk switching to a VT with another
-@@ -447,28 +642,56 @@
+@@ -447,28 +641,56 @@
  	struct stat s;
  	int fd;
  
@@ -488,10 +487,10 @@
  		return -1;
  	}
 +#endif
- 
++
 +#if defined(__FreeBSD__)
 +	printf("%s: signal=%d\n", __func__, fd);
-+
+ 
 +	switch (fd) {
 +#else
  	switch (sig.ssi_signo) {
@@ -499,7 +498,7 @@
  	case SIGCHLD:
  		pid = waitpid(-1, &status, 0);
  		if (pid == wl->child) {
-@@ -491,26 +714,59 @@
+@@ -491,26 +713,59 @@
  	case SIGTERM:
  	case SIGINT:
  		if (wl->child)
@@ -559,7 +558,7 @@
  static int
  setup_tty(struct weston_launch *wl, const char *tty)
  {
-@@ -518,6 +774,8 @@
+@@ -518,6 +773,8 @@
  	struct vt_mode mode = { 0 };
  	char *t;
  
@@ -568,7 +567,7 @@
  	if (!wl->new_user) {
  		wl->tty = STDIN_FILENO;
  	} else if (tty) {
-@@ -527,52 +785,106 @@
+@@ -527,52 +784,107 @@
  		else
  			wl->tty = open(tty, O_RDWR | O_NOCTTY);
  	} else {
@@ -609,6 +608,7 @@
 +			errx(1, "weston-launch must be run from a virtual "
 +			    "terminal");
 +		free(ttydrv);
++		wl->ttynr = minor(buf.st_rdev);
 +	}
 +#else
  	if (fstat(wl->tty, &buf) == -1 ||
