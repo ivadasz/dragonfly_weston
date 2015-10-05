@@ -15,12 +15,13 @@
  #include <assert.h>
  #include <sys/mman.h>
  #include <dlfcn.h>
-@@ -44,19 +51,29 @@
+@@ -44,19 +51,30 @@
  #include <drm_fourcc.h>
  
  #include <gbm.h>
 +#if defined(__FreeBSD__)
 +#include <kbdev.h>
++#include <devattr.h>
 +#else
  #include <libudev.h>
 +#endif
@@ -45,7 +46,7 @@
  
  #ifndef DRM_CAP_TIMESTAMP_MONOTONIC
  #define DRM_CAP_TIMESTAMP_MONOTONIC 0x6
-@@ -76,6 +93,9 @@
+@@ -76,6 +94,9 @@
  
  static int option_current_mode = 0;
  
@@ -55,7 +56,7 @@
  enum output_config {
  	OUTPUT_CONFIG_INVALID = 0,
  	OUTPUT_CONFIG_OFF,
-@@ -89,11 +109,24 @@
+@@ -89,11 +110,23 @@
  	struct weston_backend base;
  	struct weston_compositor *compositor;
  
@@ -68,9 +69,8 @@
 +	int kbd_fd;
 +	struct kbdev_state *kbdst;
 +	struct wl_event_source *kbd_source;
-+#else
- 	struct udev *udev;
 +#endif
+ 	struct udev *udev;
  	struct wl_event_source *drm_source;
  
 +#if !defined(__FreeBSD__)
@@ -310,44 +310,33 @@
  
  	drmModeFreeProperty(output->dpms_prop);
  
-@@ -1454,13 +1540,19 @@
- }
- 
- static int
-+#if defined(__FreeBSD__)
-+init_drm(struct drm_backend *b, const char *filename)
-+#else
- init_drm(struct drm_backend *b, struct udev_device *device)
-+#endif
- {
--	const char *filename, *sysnum;
- 	uint64_t cap;
+@@ -1461,15 +1547,26 @@
  	int fd, ret;
  	clockid_t clk_id;
  
-+#if !defined(__FreeBSD__)
-+	const char *filename, *sysnum;
-+
++#if defined(__FreeBSD__)
++	b->drm.id = udev_device_get_devnum(device);
++	if (b->drm.id < 0) {
++#else
  	sysnum = udev_device_get_sysnum(device);
  	if (sysnum)
  		b->drm.id = atoi(sysnum);
-@@ -1470,11 +1562,16 @@
+ 	if (!sysnum || b->drm.id < 0) {
++#endif
+ 		weston_log("cannot get device sysnum\n");
+ 		return -1;
  	}
  
  	filename = udev_device_get_devnode(device);
++#if defined(__FreeBSD__)
++	char buf[128];
++	memset(buf, 0, sizeof(buf));
++	snprintf(buf, sizeof(buf) - 1, "%s/%s", udev_get_dev_path(b->udev), filename);
++	filename = buf;
 +#endif
  	fd = weston_launcher_open(b->compositor->launcher, filename, O_RDWR);
  	if (fd < 0) {
  		/* Probably permissions error */
-+#if defined(__FreeBSD__)
-+		weston_log("couldn't open %s, skipping\n", filename);
-+#else
- 		weston_log("couldn't open %s, skipping\n",
- 			udev_device_get_devnode(device));
-+#endif
- 		return -1;
- 	}
- 
 @@ -1490,8 +1587,13 @@
  		clk_id = CLOCK_REALTIME;
  
@@ -394,19 +383,7 @@
  
  static int
  get_gbm_format_from_section(struct weston_config_section *section,
-@@ -2276,7 +2382,11 @@
- create_output_for_connector(struct drm_backend *b,
- 			    drmModeRes *resources,
- 			    drmModeConnector *connector,
-+#if defined(__FreeBSD__)
-+			    int x, int y)
-+#else
- 			    int x, int y, struct udev_device *drm_device)
-+#endif
- {
- 	struct drm_output *output;
- 	struct drm_mode *drm_mode, *next, *current;
-@@ -2303,6 +2413,7 @@
+@@ -2303,6 +2409,7 @@
  	output->base.make = "unknown";
  	output->base.model = "unknown";
  	output->base.serial_number = "unknown";
@@ -414,7 +391,7 @@
  	wl_list_init(&output->base.mode_list);
  
  	section = weston_config_get_section(b->compositor->config, "output", "name",
-@@ -2338,8 +2449,10 @@
+@@ -2338,8 +2445,10 @@
  					&output->format) == -1)
  		output->format = b->format;
  
@@ -425,7 +402,7 @@
  	free(s);
  
  	output->crtc_id = resources->crtcs[i];
-@@ -2389,6 +2502,7 @@
+@@ -2389,6 +2498,7 @@
  		goto err_output;
  	}
  
@@ -433,7 +410,7 @@
  	output->backlight = backlight_init(drm_device,
  					   connector->connector_type);
  	if (output->backlight) {
-@@ -2399,6 +2513,7 @@
+@@ -2399,6 +2509,7 @@
  	} else {
  		weston_log("Failed to initialize backlight\n");
  	}
@@ -441,33 +418,7 @@
  
  	weston_compositor_add_output(b->compositor, &output->base);
  
-@@ -2528,8 +2643,12 @@
- }
- 
- static int
-+#if defined(__FreeBSD__)
-+create_outputs(struct drm_backend *b, uint32_t option_connector)
-+#else
- create_outputs(struct drm_backend *b, uint32_t option_connector,
- 	       struct udev_device *drm_device)
-+#endif
- {
- 	drmModeConnector *connector;
- 	drmModeRes *resources;
-@@ -2566,8 +2685,12 @@
- 		    (option_connector == 0 ||
- 		     connector->connector_id == option_connector)) {
- 			if (create_output_for_connector(b, resources,
-+#if defined(__FreeBSD__)
-+							connector, x, y) < 0) {
-+#else
- 							connector, x, y,
- 							drm_device) < 0) {
-+#endif
- 				drmModeFreeConnector(connector);
- 				continue;
- 			}
-@@ -2591,6 +2714,7 @@
+@@ -2591,6 +2702,7 @@
  	return 0;
  }
  
@@ -475,7 +426,7 @@
  static void
  update_outputs(struct drm_backend *b, struct udev_device *drm_device)
  {
-@@ -2693,6 +2817,151 @@
+@@ -2693,6 +2805,151 @@
  
  	return 1;
  }
@@ -627,7 +578,7 @@
  
  static void
  drm_restore(struct weston_compositor *ec)
-@@ -2705,9 +2974,15 @@
+@@ -2705,9 +2962,15 @@
  {
  	struct drm_backend *b = (struct drm_backend *) ec->backend;
  
@@ -643,7 +594,7 @@
  	wl_event_source_remove(b->drm_source);
  
  	destroy_sprites(b);
-@@ -2749,9 +3024,10 @@
+@@ -2749,9 +3012,10 @@
  				     &drm_mode->mode_info);
  		if (ret < 0) {
  			weston_log(
@@ -656,7 +607,7 @@
  		}
  	}
  }
-@@ -2763,16 +3039,49 @@
+@@ -2763,16 +3027,49 @@
  	struct drm_backend *b = (struct drm_backend *)compositor->backend;
  	struct drm_sprite *sprite;
  	struct drm_output *output;
@@ -706,7 +657,7 @@
  
  		b->prev_state = compositor->state;
  		weston_compositor_offscreen(compositor);
-@@ -2807,9 +3116,12 @@
+@@ -2807,6 +3104,8 @@
  {
  	struct weston_compositor *compositor = data;
  
@@ -715,19 +666,58 @@
  	weston_launcher_activate_vt(compositor->launcher, key - KEY_F1 + 1);
  }
  
-+#if !defined(__FreeBSD__)
- /*
-  * Find primary GPU
-  * Some systems may have multiple DRM devices attached to a single seat. This
-@@ -2865,6 +3177,7 @@
- 	udev_enumerate_unref(e);
- 	return drm_device;
- }
+@@ -2818,24 +3117,42 @@
+  * If no such device is found, the first DRM device reported by udev is used.
+  */
+ static struct udev_device*
++#if defined(__FreeBSD__)
++find_primary_gpu(struct drm_backend *b)
++#else
+ find_primary_gpu(struct drm_backend *b, const char *seat)
++#endif
+ {
+ 	struct udev_enumerate *e;
+ 	struct udev_list_entry *entry;
++#if defined(__FreeBSD__)
++	struct udev_device *device, *drm_device;
++#else
+ 	const char *path, *device_seat, *id;
+ 	struct udev_device *device, *drm_device, *pci;
 +#endif
  
- static void
- planes_binding(struct weston_keyboard *keyboard, uint32_t time, uint32_t key,
-@@ -2925,7 +3238,7 @@
+ 	e = udev_enumerate_new(b->udev);
++#if defined(__FreeBSD__)
++	udev_enumerate_add_match_expr(e, "driver", "drm");
++	udev_enumerate_add_match_regex(e, "name", "card[0-9]*");
++#else
+ 	udev_enumerate_add_match_subsystem(e, "drm");
+ 	udev_enumerate_add_match_sysname(e, "card[0-9]*");
++#endif
+ 
+ 	udev_enumerate_scan_devices(e);
+ 	drm_device = NULL;
+ 	udev_list_entry_foreach(entry, udev_enumerate_get_list_entry(e)) {
++#if defined(__FreeBSD__)
++		device = udev_list_entry_get_device(entry);
++#else
+ 		path = udev_list_entry_get_name(entry);
+ 		device = udev_device_new_from_syspath(b->udev, path);
++#endif
+ 		if (!device)
+ 			continue;
++#if !defined(__FreeBSD__)
+ 		device_seat = udev_device_get_property_value(device, "ID_SEAT");
+ 		if (!device_seat)
+ 			device_seat = default_seat;
+@@ -2855,6 +3172,7 @@
+ 				break;
+ 			}
+ 		}
++#endif
+ 
+ 		if (!drm_device)
+ 			drm_device = device;
+@@ -2925,7 +3243,7 @@
  	ret = vaapi_recorder_frame(output->recorder, fd,
  				   output->current->stride);
  	if (ret < 0) {
@@ -736,15 +726,7 @@
  		recorder_destroy(output);
  	}
  }
-@@ -3059,17 +3372,23 @@
- {
- 	struct drm_backend *b;
- 	struct weston_config_section *section;
-+#if !defined(__FreeBSD__)
- 	struct udev_device *drm_device;
-+#endif
- 	struct wl_event_loop *loop;
- 	const char *path;
+@@ -3065,11 +3383,15 @@
  	uint32_t key;
  
  	weston_log("initializing drm backend\n");
@@ -760,41 +742,29 @@
  	/*
  	 * KMS support for hardware planes cannot properly synchronize
  	 * without nuclear page flip. Without nuclear/atomic, hw plane
-@@ -3100,23 +3419,33 @@
- 		goto err_compositor;
- 	}
- 
-+#if !defined(__FreeBSD__)
- 	b->udev = udev_new();
- 	if (b->udev == NULL) {
- 		weston_log("failed to initialize udev context\n");
- 		goto err_launcher;
- 	}
-+#endif
- 
+@@ -3109,12 +3431,21 @@
  	b->session_listener.notify = session_notify;
  	wl_signal_add(&compositor->session_signal, &b->session_listener);
  
 +#if defined(__FreeBSD__)
-+	path = "/dev/dri/card0";
++	drm_device = find_primary_gpu(b);
 +#else
  	drm_device = find_primary_gpu(b, param->seat_id);
++#endif
  	if (drm_device == NULL) {
  		weston_log("no drm device found\n");
  		goto err_udev;
  	}
++#if defined(__FreeBSD__)
++	/* XXX no sysfs on DragonFly, just use devnode for log output */
++	path = udev_device_get_devnode(drm_device);
++#else
  	path = udev_device_get_syspath(drm_device);
 +#endif
  
-+#if defined(__FreeBSD__)
-+	if (init_drm(b, path) < 0) {
-+#else
  	if (init_drm(b, drm_device) < 0) {
-+#endif
  		weston_log("failed to initialize kms\n");
- 		goto err_udev_dev;
- 	}
-@@ -3138,7 +3467,7 @@
+@@ -3138,7 +3469,7 @@
  
  	b->prev_state = WESTON_COMPOSITOR_ACTIVE;
  
@@ -803,7 +773,7 @@
  		weston_compositor_add_key_binding(compositor, key,
  						  MODIFIER_CTRL | MODIFIER_ALT,
  						  switch_vt_binding, compositor);
-@@ -3146,13 +3475,21 @@
+@@ -3146,8 +3477,12 @@
  	wl_list_init(&b->sprite_list);
  	create_sprites(b);
  
@@ -816,16 +786,7 @@
  		weston_log("failed to create input devices\n");
  		goto err_sprite;
  	}
- 
-+#if defined(__FreeBSD__)
-+	if (create_outputs(b, param->connector) < 0) {
-+#else
- 	if (create_outputs(b, param->connector, drm_device) < 0) {
-+#endif
- 		weston_log("failed to create output for %s\n", path);
- 		goto err_udev_input;
- 	}
-@@ -3164,11 +3501,11 @@
+@@ -3164,11 +3499,11 @@
  
  	path = NULL;
  
@@ -838,15 +799,15 @@
  	b->udev_monitor = udev_monitor_new_from_netlink(b->udev, "udev");
  	if (b->udev_monitor == NULL) {
  		weston_log("failed to intialize udev monitor\n");
-@@ -3187,6 +3524,7 @@
+@@ -3185,6 +3520,7 @@
+ 		weston_log("failed to enable udev-monitor receiving\n");
+ 		goto err_udev_monitor;
  	}
- 
- 	udev_device_unref(drm_device);
 +#endif
  
- 	weston_compositor_add_debug_binding(compositor, KEY_O,
- 					    planes_binding, b);
-@@ -3209,22 +3547,30 @@
+ 	udev_device_unref(drm_device);
+ 
+@@ -3209,13 +3545,17 @@
  
  	return b;
  
@@ -864,20 +825,7 @@
  err_sprite:
  	gbm_device_destroy(b->gbm);
  	destroy_sprites(b);
- err_udev_dev:
-+#if !defined(__FreeBSD__)
- 	udev_device_unref(drm_device);
- err_launcher:
-+#endif
- 	weston_launcher_destroy(compositor->launcher);
-+#if !defined(__FreeBSD__)
- err_udev:
- 	udev_unref(b->udev);
-+#endif
- err_compositor:
- 	weston_compositor_shutdown(compositor);
- err_base:
-@@ -3241,7 +3587,9 @@
+@@ -3241,7 +3581,9 @@
  
  	const struct weston_option drm_options[] = {
  		{ WESTON_OPTION_INTEGER, "connector", 0, &param.connector },
