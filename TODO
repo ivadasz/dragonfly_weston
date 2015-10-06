@@ -1,8 +1,9 @@
-TODO: weston_port: Improve mmap stuff (e.g. use MAP_TRYFIXED for enlargening
-      a pool). On FreeBSD (MAP_FIXED | MAP_EXCL) seems to have the same effect.
 TODO: utilize libdevattr in the drm-backend, instead of fixed device paths
       for the drm device [DONE]
       for sysmouse input [TODO]
 TODO: For FreeBSD, probably need to use libdevq there.
 TODO: send libxkbcommon fix to FreeBSD ports
 TODO: talk to wayland upstream about wl_display_roundtrip flushing issue
+TODO: Fix running weston with drm-backend without weston-launcher
+TODO: Maybe shm_open(3) can be used on DragonFly in wayland clients, for
+      allocating shared memory.

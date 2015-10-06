@@ -15,6 +15,7 @@ LDFLAGS+=	-L${LOCALBASE}/lib
 LIB_DEPENDS=	libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
 		libexecinfo.so:${PORTSDIR}/devel/libexecinfo		\
 		libpixman-1.so:${PORTSDIR}/x11/pixman			\
+		libcairo.so:${PORTSDIR}/graphics/cairo			\
 		libwayland-server.so:${PORTSDIR}/graphics/wayland	\
 		libwayland-client.so:${PORTSDIR}/graphics/wayland	\
 		libwayland-cursor.so:${PORTSDIR}/graphics/wayland	\

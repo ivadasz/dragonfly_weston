@@ -426,7 +426,7 @@
  static void
  update_outputs(struct drm_backend *b, struct udev_device *drm_device)
  {
-@@ -2693,6 +2805,151 @@
+@@ -2693,6 +2805,187 @@
  
  	return 1;
  }
@@ -574,11 +574,47 @@
 +
 +	return 0;
 +}
++
++static void
++drm_input_enable(struct drm_backend *b)
++{
++	struct wl_array keys;
++	struct wl_event_loop *loop =
++	    wl_display_get_event_loop(b->compositor->wl_display);
++
++	/* Re-enable keyboard input */
++	b->kbd_source = wl_event_loop_add_fd(
++	    wl_display_get_event_loop(b->compositor->wl_display),
++	    b->kbd_fd, WL_EVENT_READABLE, drm_kbd_handler, b);
++	kbdev_reset_state(b->kbdst);
++	wl_array_init(&keys);
++	notify_keyboard_focus_in(&b->syscons_seat, &keys, STATE_UPDATE_AUTOMATIC);
++	wl_array_release(&keys);
++
++	/* Re-enable mouse input */
++	if (drm_input_sysmouse_open(b) == 0) {
++		b->sysmouse_source = wl_event_loop_add_fd(loop,
++		    b->sysmouse_fd, WL_EVENT_READABLE,
++		    drm_sysmouse_handler, b);
++	} else {
++		weston_log("Re-initializing sysmouse input failed\n");
++	}
++}
++
++static void
++drm_input_disable(struct drm_backend *b)
++{
++	wl_event_source_remove(b->sysmouse_source);
++	wl_event_source_remove(b->kbd_source);
++	notify_keyboard_focus_out(&b->syscons_seat);
++	close(b->sysmouse_fd);
++	b->sysmouse_fd = -1;
++}
 +#endif
  
  static void
  drm_restore(struct weston_compositor *ec)
-@@ -2705,9 +2962,15 @@
+@@ -2705,9 +2998,15 @@
  {
  	struct drm_backend *b = (struct drm_backend *) ec->backend;
  
@@ -594,7 +630,7 @@
  	wl_event_source_remove(b->drm_source);
  
  	destroy_sprites(b);
-@@ -2749,9 +3012,10 @@
+@@ -2749,9 +3048,10 @@
  				     &drm_mode->mode_info);
  		if (ret < 0) {
  			weston_log(
@@ -607,57 +643,26 @@
  		}
  	}
  }
-@@ -2763,16 +3027,49 @@
- 	struct drm_backend *b = (struct drm_backend *)compositor->backend;
- 	struct drm_sprite *sprite;
- 	struct drm_output *output;
-+	struct wl_event_loop *loop;
-+
-+	loop = wl_display_get_event_loop(compositor->wl_display);
- 
- 	if (compositor->session_active) {
- 		weston_log("activating session\n");
+@@ -2769,10 +3069,18 @@
  		compositor->state = b->prev_state;
  		drm_backend_set_modes(b);
  		weston_compositor_damage_all(compositor);
 +#if defined(__FreeBSD__)
-+		/* XXX enable mouse input source */
-+		/* Re-enable keyboard input */
-+		b->kbd_source = wl_event_loop_add_fd(
-+		    wl_display_get_event_loop(b->compositor->wl_display),
-+		    b->kbd_fd, WL_EVENT_READABLE, drm_kbd_handler, b);
-+		kbdev_reset_state(b->kbdst);
-+		struct wl_array keys;
-+		wl_array_init(&keys);
-+		notify_keyboard_focus_in(&b->syscons_seat, &keys, STATE_UPDATE_AUTOMATIC);
-+		wl_array_release(&keys);
-+
-+		/* Re-enable mouse input */
-+		if (drm_input_sysmouse_open(b) == 0) {
-+			b->sysmouse_source = wl_event_loop_add_fd(loop,
-+			    b->sysmouse_fd, WL_EVENT_READABLE,
-+			    drm_sysmouse_handler, b);
-+		} else {
-+			weston_log("Re-initializing sysmouse input failed\n");
-+		}
++		drm_input_enable(b);
 +#else
  		udev_input_enable(&b->input);
 +#endif
  	} else {
  		weston_log("deactivating session\n");
 +#if defined(__FreeBSD__)
-+		wl_event_source_remove(b->sysmouse_source);
-+		wl_event_source_remove(b->kbd_source);
-+		notify_keyboard_focus_out(&b->syscons_seat);
-+		close(b->sysmouse_fd);
-+		b->sysmouse_fd = -1;
++		drm_input_disable(b);
 +#else
  		udev_input_disable(&b->input);
 +#endif
  
  		b->prev_state = compositor->state;
  		weston_compositor_offscreen(compositor);
-@@ -2807,6 +3104,8 @@
+@@ -2807,6 +3115,8 @@
  {
  	struct weston_compositor *compositor = data;
  
@@ -666,7 +671,7 @@
  	weston_launcher_activate_vt(compositor->launcher, key - KEY_F1 + 1);
  }
  
-@@ -2818,24 +3117,42 @@
+@@ -2818,24 +3128,42 @@
   * If no such device is found, the first DRM device reported by udev is used.
   */
  static struct udev_device*
@@ -709,7 +714,7 @@
  		device_seat = udev_device_get_property_value(device, "ID_SEAT");
  		if (!device_seat)
  			device_seat = default_seat;
-@@ -2855,6 +3172,7 @@
+@@ -2855,6 +3183,7 @@
  				break;
  			}
  		}
@@ -717,7 +722,7 @@
  
  		if (!drm_device)
  			drm_device = device;
-@@ -2925,7 +3243,7 @@
+@@ -2925,7 +3254,7 @@
  	ret = vaapi_recorder_frame(output->recorder, fd,
  				   output->current->stride);
  	if (ret < 0) {
@@ -726,7 +731,7 @@
  		recorder_destroy(output);
  	}
  }
-@@ -3065,11 +3383,15 @@
+@@ -3065,11 +3394,15 @@
  	uint32_t key;
  
  	weston_log("initializing drm backend\n");
@@ -742,7 +747,7 @@
  	/*
  	 * KMS support for hardware planes cannot properly synchronize
  	 * without nuclear page flip. Without nuclear/atomic, hw plane
-@@ -3109,12 +3431,21 @@
+@@ -3109,12 +3442,21 @@
  	b->session_listener.notify = session_notify;
  	wl_signal_add(&compositor->session_signal, &b->session_listener);
  
@@ -764,7 +769,7 @@
  
  	if (init_drm(b, drm_device) < 0) {
  		weston_log("failed to initialize kms\n");
-@@ -3138,7 +3469,7 @@
+@@ -3138,7 +3480,7 @@
  
  	b->prev_state = WESTON_COMPOSITOR_ACTIVE;
  
@@ -773,7 +778,7 @@
  		weston_compositor_add_key_binding(compositor, key,
  						  MODIFIER_CTRL | MODIFIER_ALT,
  						  switch_vt_binding, compositor);
-@@ -3146,8 +3477,12 @@
+@@ -3146,8 +3488,12 @@
  	wl_list_init(&b->sprite_list);
  	create_sprites(b);
  
@@ -786,7 +791,7 @@
  		weston_log("failed to create input devices\n");
  		goto err_sprite;
  	}
-@@ -3164,11 +3499,11 @@
+@@ -3164,11 +3510,11 @@
  
  	path = NULL;
  
@@ -799,7 +804,7 @@
  	b->udev_monitor = udev_monitor_new_from_netlink(b->udev, "udev");
  	if (b->udev_monitor == NULL) {
  		weston_log("failed to intialize udev monitor\n");
-@@ -3185,6 +3520,7 @@
+@@ -3185,6 +3531,7 @@
  		weston_log("failed to enable udev-monitor receiving\n");
  		goto err_udev_monitor;
  	}
@@ -807,7 +812,7 @@
  
  	udev_device_unref(drm_device);
  
-@@ -3209,13 +3545,17 @@
+@@ -3209,13 +3556,17 @@
  
  	return b;
  
@@ -825,7 +830,7 @@
  err_sprite:
  	gbm_device_destroy(b->gbm);
  	destroy_sprites(b);
-@@ -3241,7 +3581,9 @@
+@@ -3241,7 +3592,9 @@
  
  	const struct weston_option drm_options[] = {
  		{ WESTON_OPTION_INTEGER, "connector", 0, &param.connector },
