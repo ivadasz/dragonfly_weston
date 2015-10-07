@@ -426,7 +426,7 @@
  static void
  update_outputs(struct drm_backend *b, struct udev_device *drm_device)
  {
-@@ -2693,6 +2805,187 @@
+@@ -2693,6 +2805,196 @@
  
  	return 1;
  }
@@ -471,8 +471,11 @@
 +	struct drm_backend *b = (struct drm_backend *)data;
 +
 +	k = 0;
-+	if ((n = read(b->sysmouse_fd, buf, sizeof(buf))) <= 0)
++	if ((n = read(b->sysmouse_fd, buf, sizeof(buf))) <= 0) {
++		if (n < 0 && errno != EAGAIN)
++			warn("read from sysmouse fd");
 +		return 0;
++	}
 +
 +	for (k = 0; k < n; k += 8) {
 +		if (n -k < 8 || (buf[0] & 0x80) == 0 || (buf[7] & 0x80) != 0)
@@ -604,8 +607,14 @@
 +static void
 +drm_input_disable(struct drm_backend *b)
 +{
-+	wl_event_source_remove(b->sysmouse_source);
-+	wl_event_source_remove(b->kbd_source);
++	if (b->sysmouse_source != NULL) {
++		wl_event_source_remove(b->sysmouse_source);
++		b->sysmouse_source = NULL;
++	}
++	if (b->kbd_source != NULL) {
++		wl_event_source_remove(b->kbd_source);
++		b->kbd_source = NULL;
++	}
 +	notify_keyboard_focus_out(&b->syscons_seat);
 +	close(b->sysmouse_fd);
 +	b->sysmouse_fd = -1;
@@ -614,7 +623,7 @@
  
  static void
  drm_restore(struct weston_compositor *ec)
-@@ -2705,9 +2998,15 @@
+@@ -2705,9 +3007,15 @@
  {
  	struct drm_backend *b = (struct drm_backend *) ec->backend;
  
@@ -630,7 +639,7 @@
  	wl_event_source_remove(b->drm_source);
  
  	destroy_sprites(b);
-@@ -2749,9 +3048,10 @@
+@@ -2749,9 +3057,10 @@
  				     &drm_mode->mode_info);
  		if (ret < 0) {
  			weston_log(
@@ -643,7 +652,7 @@
  		}
  	}
  }
-@@ -2769,10 +3069,18 @@
+@@ -2769,10 +3078,18 @@
  		compositor->state = b->prev_state;
  		drm_backend_set_modes(b);
  		weston_compositor_damage_all(compositor);
@@ -662,7 +671,7 @@
  
  		b->prev_state = compositor->state;
  		weston_compositor_offscreen(compositor);
-@@ -2807,6 +3115,8 @@
+@@ -2807,6 +3124,8 @@
  {
  	struct weston_compositor *compositor = data;
  
@@ -671,7 +680,7 @@
  	weston_launcher_activate_vt(compositor->launcher, key - KEY_F1 + 1);
  }
  
-@@ -2818,24 +3128,42 @@
+@@ -2818,24 +3137,42 @@
   * If no such device is found, the first DRM device reported by udev is used.
   */
  static struct udev_device*
@@ -714,7 +723,7 @@
  		device_seat = udev_device_get_property_value(device, "ID_SEAT");
  		if (!device_seat)
  			device_seat = default_seat;
-@@ -2855,6 +3183,7 @@
+@@ -2855,6 +3192,7 @@
  				break;
  			}
  		}
@@ -722,7 +731,7 @@
  
  		if (!drm_device)
  			drm_device = device;
-@@ -2925,7 +3254,7 @@
+@@ -2925,7 +3263,7 @@
  	ret = vaapi_recorder_frame(output->recorder, fd,
  				   output->current->stride);
  	if (ret < 0) {
@@ -731,7 +740,7 @@
  		recorder_destroy(output);
  	}
  }
-@@ -3065,11 +3394,15 @@
+@@ -3065,11 +3403,15 @@
  	uint32_t key;
  
  	weston_log("initializing drm backend\n");
@@ -747,7 +756,7 @@
  	/*
  	 * KMS support for hardware planes cannot properly synchronize
  	 * without nuclear page flip. Without nuclear/atomic, hw plane
-@@ -3109,12 +3442,21 @@
+@@ -3109,12 +3451,21 @@
  	b->session_listener.notify = session_notify;
  	wl_signal_add(&compositor->session_signal, &b->session_listener);
  
@@ -769,7 +778,7 @@
  
  	if (init_drm(b, drm_device) < 0) {
  		weston_log("failed to initialize kms\n");
-@@ -3138,7 +3480,7 @@
+@@ -3138,7 +3489,7 @@
  
  	b->prev_state = WESTON_COMPOSITOR_ACTIVE;
  
@@ -778,7 +787,7 @@
  		weston_compositor_add_key_binding(compositor, key,
  						  MODIFIER_CTRL | MODIFIER_ALT,
  						  switch_vt_binding, compositor);
-@@ -3146,8 +3488,12 @@
+@@ -3146,8 +3497,12 @@
  	wl_list_init(&b->sprite_list);
  	create_sprites(b);
  
@@ -791,7 +800,7 @@
  		weston_log("failed to create input devices\n");
  		goto err_sprite;
  	}
-@@ -3164,11 +3510,11 @@
+@@ -3164,11 +3519,11 @@
  
  	path = NULL;
  
@@ -804,7 +813,7 @@
  	b->udev_monitor = udev_monitor_new_from_netlink(b->udev, "udev");
  	if (b->udev_monitor == NULL) {
  		weston_log("failed to intialize udev monitor\n");
-@@ -3185,6 +3531,7 @@
+@@ -3185,6 +3540,7 @@
  		weston_log("failed to enable udev-monitor receiving\n");
  		goto err_udev_monitor;
  	}
@@ -812,7 +821,7 @@
  
  	udev_device_unref(drm_device);
  
-@@ -3209,13 +3556,17 @@
+@@ -3209,13 +3565,17 @@
  
  	return b;
  
@@ -830,7 +839,7 @@
  err_sprite:
  	gbm_device_destroy(b->gbm);
  	destroy_sprites(b);
-@@ -3241,7 +3592,9 @@
+@@ -3241,7 +3601,9 @@
  
  	const struct weston_option drm_options[] = {
  		{ WESTON_OPTION_INTEGER, "connector", 0, &param.connector },
