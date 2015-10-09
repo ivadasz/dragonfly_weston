@@ -46,17 +46,7 @@
  
  #ifndef DRM_CAP_TIMESTAMP_MONOTONIC
  #define DRM_CAP_TIMESTAMP_MONOTONIC 0x6
-@@ -76,6 +94,9 @@
- 
- static int option_current_mode = 0;
- 
-+static int vblank_acked = 0;
-+static int page_flip_acked = 0;
-+
- enum output_config {
- 	OUTPUT_CONFIG_INVALID = 0,
- 	OUTPUT_CONFIG_OFF,
-@@ -89,11 +110,23 @@
+@@ -89,11 +107,23 @@
  	struct weston_backend base;
  	struct weston_compositor *compositor;
  
@@ -80,7 +70,7 @@
  
  	struct {
  		int id;
-@@ -126,7 +159,9 @@
+@@ -126,7 +156,9 @@
  
  	uint32_t prev_state;
  
@@ -90,15 +80,7 @@
  
  	int32_t cursor_width;
  	int32_t cursor_height;
-@@ -173,6 +208,7 @@
- 
- 	enum dpms_enum dpms;
- 
-+	struct wl_event_source *watchdog_source;
- 	int vblank_pending;
- 	int page_flip_pending;
- 	int destroy_pending;
-@@ -184,7 +220,9 @@
+@@ -184,7 +216,9 @@
  	struct weston_view *cursor_view;
  	int current_cursor;
  	struct drm_fb *current, *next;
@@ -108,7 +90,7 @@
  
  	struct drm_fb *dumb[2];
  	pixman_image_t *image[2];
-@@ -237,6 +275,10 @@
+@@ -237,6 +271,10 @@
  static void
  drm_output_update_msc(struct drm_output *output, unsigned int seq);
  
@@ -119,7 +101,7 @@
  static int
  drm_sprite_crtc_supported(struct drm_output *output, uint32_t supported)
  {
-@@ -391,7 +433,7 @@
+@@ -391,7 +429,7 @@
  				    format, handles, pitches, offsets,
  				    &fb->fb_id, 0);
  		if (ret) {
@@ -128,7 +110,7 @@
  			backend->no_addfb2 = 1;
  			backend->sprites_are_broken = 1;
  		}
-@@ -402,7 +444,7 @@
+@@ -402,7 +440,7 @@
  				   fb->stride, fb->handle, &fb->fb_id);
  
  	if (ret) {
@@ -137,7 +119,7 @@
  		goto err_free;
  	}
  
-@@ -532,7 +574,8 @@
+@@ -532,7 +570,8 @@
  
  	bo = gbm_surface_lock_front_buffer(output->surface);
  	if (!bo) {
@@ -147,7 +129,7 @@
  		return;
  	}
  
-@@ -604,7 +647,7 @@
+@@ -604,7 +643,7 @@
  				 output->crtc_id,
  				 size, r, g, b);
  	if (rc)
@@ -156,34 +138,7 @@
  }
  
  /* Determine the type of vblank synchronization to use for the output.
-@@ -633,6 +676,26 @@
- }
- 
- static int
-+handle_watchdog(void *data)
-+{
-+	struct drm_output *output = data;
-+	struct drm_backend *backend =
-+	    (struct drm_backend *)output->base.compositor->backend;
-+	struct timespec now;
-+
-+	weston_log("%s: timed out page_flip_pending=%d vblank_pending=%d\n",
-+	    __func__, output->page_flip_pending, output->vblank_pending);
-+	weston_log("%s: output->base.msc=0x%lx vblank_acked=%d page_flip_acked=%d\n",
-+	    __func__, output->base.msc, vblank_acked, page_flip_acked);
-+	weston_compositor_read_presentation_clock(output->base.compositor, &now);
-+
-+	page_flip_handler(backend->drm.fd, (output->base.msc & 0xffffffff) + 1,
-+			  now.tv_sec, now.tv_nsec / 1000, output);
-+
-+	return 1;
-+}
-+
-+static int
- drm_output_repaint(struct weston_output *output_base,
- 		   pixman_region32_t *damage)
- {
-@@ -659,7 +722,7 @@
+@@ -659,7 +698,7 @@
  				     &output->connector_id, 1,
  				     &mode->mode_info);
  		if (ret) {
@@ -192,7 +147,7 @@
  			goto err_pageflip;
  		}
  		output_base->set_dpms(output_base, WESTON_DPMS_ON);
-@@ -668,10 +731,15 @@
+@@ -668,7 +707,7 @@
  	if (drmModePageFlip(backend->drm.fd, output->crtc_id,
  			    output->next->fb_id,
  			    DRM_MODE_PAGE_FLIP_EVENT, output) < 0) {
@@ -201,15 +156,7 @@
  		goto err_pageflip;
  	}
  
-+	struct wl_event_loop *loop;
-+	loop = wl_display_get_event_loop(output->base.compositor->wl_display);
-+	output->watchdog_source = wl_event_loop_add_timer(loop, handle_watchdog,
-+	    output);
-+	wl_event_source_timer_update(output->watchdog_source, 200);
- 	output->page_flip_pending = 1;
- 
- 	drm_output_set_cursor(output);
-@@ -781,16 +849,18 @@
+@@ -781,16 +820,18 @@
  						PRESENTATION_FEEDBACK_INVALID);
  			return;
  		}
@@ -230,47 +177,21 @@
  		goto finish_frame;
  	}
  
-@@ -825,6 +895,8 @@
- 			 PRESENTATION_FEEDBACK_KIND_HW_CLOCK;
+@@ -864,9 +905,11 @@
  
- 	drm_output_update_msc(output, frame);
-+	if (output->vblank_pending)
-+		vblank_acked++;
- 	output->vblank_pending = 0;
- 
- 	drm_output_release_fb(output, s->current);
-@@ -834,6 +906,10 @@
- 	if (!output->page_flip_pending) {
- 		ts.tv_sec = sec;
- 		ts.tv_nsec = usec * 1000;
-+		if (output->watchdog_source != NULL) {
-+			wl_event_source_remove(output->watchdog_source);
-+			output->watchdog_source = NULL;
-+		}
- 		weston_output_finish_frame(&output->base, &ts, flags);
- 	}
- }
-@@ -862,6 +938,8 @@
- 		output->next = NULL;
- 	}
- 
-+	if (output->page_flip_pending)
-+		page_flip_acked++;
  	output->page_flip_pending = 0;
  
- 	if (output->destroy_pending)
-@@ -869,6 +947,10 @@
- 	else if (!output->vblank_pending) {
+-	if (output->destroy_pending)
++	if (output->destroy_pending) {
+ 		drm_output_destroy(&output->base);
+-	else if (!output->vblank_pending) {
++		return;
++	}
++	if (!output->vblank_pending) {
  		ts.tv_sec = sec;
  		ts.tv_nsec = usec * 1000;
-+		if (output->watchdog_source != NULL) {
-+			wl_event_source_remove(output->watchdog_source);
-+			output->watchdog_source = NULL;
-+		}
  		weston_output_finish_frame(&output->base, &ts, flags);
- 
- 		/* We can't call this from frame_notify, because the output's
-@@ -1154,7 +1236,7 @@
+@@ -1154,7 +1197,7 @@
  	wl_shm_buffer_end_access(buffer->shm_buffer);
  
  	if (gbm_bo_write(bo, buf, sizeof buf) < 0)
@@ -279,7 +200,7 @@
  }
  
  static void
-@@ -1187,7 +1269,8 @@
+@@ -1187,7 +1230,8 @@
  		handle = gbm_bo_get_handle(bo).s32;
  		if (drmModeSetCursor(b->drm.fd, output->crtc_id, handle,
  				b->cursor_width, b->cursor_height)) {
@@ -289,7 +210,7 @@
  			b->cursors_are_broken = 1;
  		}
  	}
-@@ -1196,7 +1279,8 @@
+@@ -1196,7 +1240,8 @@
  	y = (ev->geometry.y - output->base.y) * output->base.current_scale;
  	if (output->cursor_plane.x != x || output->cursor_plane.y != y) {
  		if (drmModeMoveCursor(b->drm.fd, output->crtc_id, x, y)) {
@@ -299,7 +220,7 @@
  			b->cursors_are_broken = 1;
  		}
  
-@@ -1305,8 +1389,10 @@
+@@ -1305,8 +1350,10 @@
  		return;
  	}
  
@@ -310,7 +231,7 @@
  
  	drmModeFreeProperty(output->dpms_prop);
  
-@@ -1461,15 +1547,26 @@
+@@ -1461,15 +1508,26 @@
  	int fd, ret;
  	clockid_t clk_id;
  
@@ -337,7 +258,7 @@
  	fd = weston_launcher_open(b->compositor->launcher, filename, O_RDWR);
  	if (fd < 0) {
  		/* Probably permissions error */
-@@ -1490,8 +1587,13 @@
+@@ -1490,8 +1548,13 @@
  		clk_id = CLOCK_REALTIME;
  
  	if (weston_compositor_set_presentation_clock(b->compositor, clk_id) < 0) {
@@ -351,7 +272,7 @@
  		return -1;
  	}
  
-@@ -1666,6 +1768,7 @@
+@@ -1666,6 +1729,7 @@
  	}
  }
  
@@ -359,7 +280,7 @@
  /* returns a value between 0-255 range, where higher is brighter */
  static uint32_t
  drm_get_backlight(struct drm_output *output)
-@@ -1701,6 +1804,7 @@
+@@ -1701,6 +1765,7 @@
  
  	backlight_set_brightness(output->backlight, new_brightness);
  }
@@ -367,7 +288,7 @@
  
  static drmModePropertyPtr
  drm_get_prop(int fd, drmModeConnectorPtr connector, const char *name)
-@@ -2105,6 +2209,7 @@
+@@ -2105,6 +2170,7 @@
  	return 0;
  }
  
@@ -375,7 +296,7 @@
  static void
  setup_output_seat_constraint(struct drm_backend *b,
  			     struct weston_output *output,
-@@ -2127,6 +2232,7 @@
+@@ -2127,6 +2193,7 @@
  					     &pointer->y);
  	}
  }
@@ -383,15 +304,7 @@
  
  static int
  get_gbm_format_from_section(struct weston_config_section *section,
-@@ -2303,6 +2409,7 @@
- 	output->base.make = "unknown";
- 	output->base.model = "unknown";
- 	output->base.serial_number = "unknown";
-+	output->watchdog_source = NULL;
- 	wl_list_init(&output->base.mode_list);
- 
- 	section = weston_config_get_section(b->compositor->config, "output", "name",
-@@ -2338,8 +2445,10 @@
+@@ -2338,8 +2405,10 @@
  					&output->format) == -1)
  		output->format = b->format;
  
@@ -402,7 +315,7 @@
  	free(s);
  
  	output->crtc_id = resources->crtcs[i];
-@@ -2389,6 +2498,7 @@
+@@ -2389,6 +2458,7 @@
  		goto err_output;
  	}
  
@@ -410,7 +323,7 @@
  	output->backlight = backlight_init(drm_device,
  					   connector->connector_type);
  	if (output->backlight) {
-@@ -2399,6 +2509,7 @@
+@@ -2399,6 +2469,7 @@
  	} else {
  		weston_log("Failed to initialize backlight\n");
  	}
@@ -418,7 +331,7 @@
  
  	weston_compositor_add_output(b->compositor, &output->base);
  
-@@ -2591,6 +2702,7 @@
+@@ -2591,6 +2662,7 @@
  	return 0;
  }
  
@@ -426,7 +339,7 @@
  static void
  update_outputs(struct drm_backend *b, struct udev_device *drm_device)
  {
-@@ -2693,6 +2805,196 @@
+@@ -2693,6 +2765,197 @@
  
  	return 1;
  }
@@ -473,7 +386,8 @@
 +	k = 0;
 +	if ((n = read(b->sysmouse_fd, buf, sizeof(buf))) <= 0) {
 +		if (n < 0 && errno != EAGAIN)
-+			warn("read from sysmouse fd");
++			weston_log("failed to read from sysmouse fd: %s\n",
++			    strerror(errno));
 +		return 0;
 +	}
 +
@@ -623,7 +537,7 @@
  
  static void
  drm_restore(struct weston_compositor *ec)
-@@ -2705,9 +3007,15 @@
+@@ -2705,9 +2968,15 @@
  {
  	struct drm_backend *b = (struct drm_backend *) ec->backend;
  
@@ -639,7 +553,7 @@
  	wl_event_source_remove(b->drm_source);
  
  	destroy_sprites(b);
-@@ -2749,9 +3057,10 @@
+@@ -2749,9 +3018,10 @@
  				     &drm_mode->mode_info);
  		if (ret < 0) {
  			weston_log(
@@ -652,7 +566,7 @@
  		}
  	}
  }
-@@ -2769,10 +3078,18 @@
+@@ -2769,10 +3039,18 @@
  		compositor->state = b->prev_state;
  		drm_backend_set_modes(b);
  		weston_compositor_damage_all(compositor);
@@ -671,7 +585,7 @@
  
  		b->prev_state = compositor->state;
  		weston_compositor_offscreen(compositor);
-@@ -2807,6 +3124,8 @@
+@@ -2807,6 +3085,8 @@
  {
  	struct weston_compositor *compositor = data;
  
@@ -680,7 +594,7 @@
  	weston_launcher_activate_vt(compositor->launcher, key - KEY_F1 + 1);
  }
  
-@@ -2818,24 +3137,42 @@
+@@ -2818,24 +3098,42 @@
   * If no such device is found, the first DRM device reported by udev is used.
   */
  static struct udev_device*
@@ -723,7 +637,7 @@
  		device_seat = udev_device_get_property_value(device, "ID_SEAT");
  		if (!device_seat)
  			device_seat = default_seat;
-@@ -2855,6 +3192,7 @@
+@@ -2855,6 +3153,7 @@
  				break;
  			}
  		}
@@ -731,7 +645,7 @@
  
  		if (!drm_device)
  			drm_device = device;
-@@ -2925,7 +3263,7 @@
+@@ -2925,7 +3224,7 @@
  	ret = vaapi_recorder_frame(output->recorder, fd,
  				   output->current->stride);
  	if (ret < 0) {
@@ -740,7 +654,7 @@
  		recorder_destroy(output);
  	}
  }
-@@ -3065,11 +3403,15 @@
+@@ -3065,11 +3364,15 @@
  	uint32_t key;
  
  	weston_log("initializing drm backend\n");
@@ -756,7 +670,7 @@
  	/*
  	 * KMS support for hardware planes cannot properly synchronize
  	 * without nuclear page flip. Without nuclear/atomic, hw plane
-@@ -3109,12 +3451,21 @@
+@@ -3109,12 +3412,21 @@
  	b->session_listener.notify = session_notify;
  	wl_signal_add(&compositor->session_signal, &b->session_listener);
  
@@ -778,7 +692,7 @@
  
  	if (init_drm(b, drm_device) < 0) {
  		weston_log("failed to initialize kms\n");
-@@ -3138,7 +3489,7 @@
+@@ -3138,7 +3450,7 @@
  
  	b->prev_state = WESTON_COMPOSITOR_ACTIVE;
  
@@ -787,7 +701,7 @@
  		weston_compositor_add_key_binding(compositor, key,
  						  MODIFIER_CTRL | MODIFIER_ALT,
  						  switch_vt_binding, compositor);
-@@ -3146,8 +3497,12 @@
+@@ -3146,8 +3458,12 @@
  	wl_list_init(&b->sprite_list);
  	create_sprites(b);
  
@@ -800,7 +714,7 @@
  		weston_log("failed to create input devices\n");
  		goto err_sprite;
  	}
-@@ -3164,11 +3519,11 @@
+@@ -3164,11 +3480,11 @@
  
  	path = NULL;
  
@@ -813,7 +727,7 @@
  	b->udev_monitor = udev_monitor_new_from_netlink(b->udev, "udev");
  	if (b->udev_monitor == NULL) {
  		weston_log("failed to intialize udev monitor\n");
-@@ -3185,6 +3540,7 @@
+@@ -3185,6 +3501,7 @@
  		weston_log("failed to enable udev-monitor receiving\n");
  		goto err_udev_monitor;
  	}
@@ -821,7 +735,7 @@
  
  	udev_device_unref(drm_device);
  
-@@ -3209,13 +3565,17 @@
+@@ -3209,13 +3526,17 @@
  
  	return b;
  
@@ -839,7 +753,7 @@
  err_sprite:
  	gbm_device_destroy(b->gbm);
  	destroy_sprites(b);
-@@ -3241,7 +3601,9 @@
+@@ -3241,7 +3562,9 @@
  
  	const struct weston_option drm_options[] = {
  		{ WESTON_OPTION_INTEGER, "connector", 0, &param.connector },

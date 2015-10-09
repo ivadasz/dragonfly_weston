@@ -2,8 +2,10 @@ TODO: utilize libdevattr in the drm-backend, instead of fixed device paths
       for the drm device [DONE]
       for sysmouse input [TODO]
 TODO: For FreeBSD, probably need to use libdevq there.
-TODO: send libxkbcommon fix to FreeBSD ports
+TODO: send libxkbcommon fix to FreeBSD ports [SUBMITTED]
 TODO: talk to wayland upstream about wl_display_roundtrip flushing issue
 TODO: Fix running weston with drm-backend without weston-launcher
 TODO: Maybe shm_open(3) can be used on DragonFly in wayland clients, for
       allocating shared memory.
+TODO: Implement non-blocking reads on the drm character device
+      (i.e. /dev/dri/card0) properly.
