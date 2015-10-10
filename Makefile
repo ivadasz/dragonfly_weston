@@ -3,7 +3,7 @@ PORTVERSION=	1.9.0
 CATEGORIES=	graphics
 MASTER_SITES=	http://wayland.freedesktop.org/releases/
 MAINTAINER=	imre@vdsz.com
-COMMENT=	Wayland Default Compositor
+COMMENT=	Wayland Reference Compositor
 
 LICENSE=	MIT
 
@@ -12,16 +12,20 @@ WRKSRC=		${WRKDIR}/${PORTNAME}-${PORTVERSION}
 CPPFLAGS+=	-I${LOCALBASE}/include
 LDFLAGS+=	-L${LOCALBASE}/lib
 
+USE_XORG=	x11 xcb
+USE_GL=		egl gbm
+
 LIB_DEPENDS=	libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
 		libexecinfo.so:${PORTSDIR}/devel/libexecinfo		\
 		libpixman-1.so:${PORTSDIR}/x11/pixman			\
 		libcairo.so:${PORTSDIR}/graphics/cairo			\
 		libcolord.so:${PORTSDIR}/graphics/colord		\
+		libfontconfig.so:${PORTSDIR}/x11-fonts/fontconfig	\
+		libfreetype.so:${PORTSDIR}/print/freetype2		\
 		libwayland-server.so:${PORTSDIR}/graphics/wayland	\
 		libwayland-client.so:${PORTSDIR}/graphics/wayland	\
 		libwayland-cursor.so:${PORTSDIR}/graphics/wayland	\
 		libevent.so:${PORTSDIR}/devel/libevent2			\
-		libgbm.so:${PORTSDIR}/graphics/gbm			\
 		libdrm.so:${PORTSDIR}/graphics/libdrm			\
 		libpng.so:${PORTSDIR}/graphics/png			\
 		libwebp.so:${PORTSDIR}/graphics/webp			\
@@ -30,6 +34,8 @@ LIB_DEPENDS=	libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
 LIBS+=		-lexecinfo
 
 BUILD_DEPENDS=	${LOCALBASE}/include/linux/input.h:${PORTSDIR}/multimedia/v4l_compat
+
+RUN_DEPENDS=	${LOCALBASE}/lib/libglapi.so.0:${PORTSDIR}/graphics/libglapi
 
 GNU_CONFIGURE=	YES
 
