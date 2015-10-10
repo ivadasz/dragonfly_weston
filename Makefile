@@ -16,6 +16,7 @@ LIB_DEPENDS=	libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
 		libexecinfo.so:${PORTSDIR}/devel/libexecinfo		\
 		libpixman-1.so:${PORTSDIR}/x11/pixman			\
 		libcairo.so:${PORTSDIR}/graphics/cairo			\
+		libcolord.so:${PORTSDIR}/graphics/colord		\
 		libwayland-server.so:${PORTSDIR}/graphics/wayland	\
 		libwayland-client.so:${PORTSDIR}/graphics/wayland	\
 		libwayland-cursor.so:${PORTSDIR}/graphics/wayland	\
@@ -23,6 +24,8 @@ LIB_DEPENDS=	libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
 		libgbm.so:${PORTSDIR}/graphics/gbm			\
 		libdrm.so:${PORTSDIR}/graphics/libdrm			\
 		libkbdev.so:${PORTSDIR}/devel/libkbdev			\
+		libpng.so:${PORTSDIR}/graphics/png			\
+		libwebp.so:${PORTSDIR}/graphics/webp			\
 		libffi.so:${PORTSDIR}/devel/libffi
 
 LIBS+=		-lexecinfo
