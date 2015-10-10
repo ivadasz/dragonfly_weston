@@ -23,12 +23,13 @@ LIB_DEPENDS=	libxkbcommon.so:${PORTSDIR}/x11/libxkbcommon		\
 		libevent.so:${PORTSDIR}/devel/libevent2			\
 		libgbm.so:${PORTSDIR}/graphics/gbm			\
 		libdrm.so:${PORTSDIR}/graphics/libdrm			\
-		libkbdev.so:${PORTSDIR}/devel/libkbdev			\
 		libpng.so:${PORTSDIR}/graphics/png			\
 		libwebp.so:${PORTSDIR}/graphics/webp			\
 		libffi.so:${PORTSDIR}/devel/libffi
 
 LIBS+=		-lexecinfo
+
+BUILD_DEPENDS=	${LOCALBASE}/include/linux/input.h:${PORTSDIR}/multimedia/v4l_compat
 
 GNU_CONFIGURE=	YES
 
